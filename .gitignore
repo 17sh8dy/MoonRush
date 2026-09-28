@@ -1,0 +1,6 @@
+launcher/src-tauri/target/
+launcher/src-tauri/gen/
+launcher/node_modules/
+game/deploy/
+__pycache__/
+*.pyc

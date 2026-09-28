@@ -1,0 +1,13 @@
+# start per_moon max curve moons expected   (hand-computed; checked by launcher + game tests)
+0.75 0.0025 2.0 linear 0 0.75
+0.75 0.0025 2.0 linear 100 1.0
+0.75 0.0025 2.0 linear 250 1.375
+0.75 0.0025 2.0 linear 500 2.0
+0.75 0.0025 2.0 linear 999 2.0
+0.75 0.0025 2.0 linear -5 0.75
+0.75 0.0025 2.0 front 250 1.6875
+0.75 0.0025 2.0 back 250 1.0625
+0.75 0.0025 2.0 front 500 2.0
+0.75 0.0 2.0 linear 300 0.75
+1.0 0.01 1.5 linear 25 1.25
+1.0 0.01 1.0 linear 400 1.0

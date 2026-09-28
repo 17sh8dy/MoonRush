@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Moonrush</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><path d="M21.5 4.6A12 12 0 1 0 27.4 20a9.4 9.4 0 1 1-5.9-15.4z"/></svg>
+        <div>
+          <h1>Moonrush</h1>
+          <p>Mario gets faster with every Moon</p>
+        </div>
+      </div>
+      <button class="btn ghost" id="refresh" title="Re-read Ryujinx, mods and logs">Refresh</button>
+    </header>
+
+    <main class="home">
+      <section class="hero">
+        <div class="hero-text">
+          <span class="eyebrow" id="hero-eyebrow">Checking setup…</span>
+          <h2 id="hero-title">Super Mario Odyssey</h2>
+          <p id="hero-sub" class="muted"></p>
+        </div>
+        <button class="btn play" id="play" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg>
+          Play
+        </button>
+      </section>
+
+      <section class="grid">
+        <article class="card" id="card-game">
+          <header><h3>Game</h3><span class="pill" data-pill></span></header>
+          <dl></dl>
+        </article>
+        <article class="card" id="card-ryujinx">
+          <header><h3>Ryujinx</h3><span class="pill" data-pill></span></header>
+          <dl></dl>
+        </article>
+        <article class="card" id="card-mod">
+          <header><h3>Moonrush mod</h3><span class="pill" data-pill></span></header>
+          <dl></dl>
+          <div class="actions">
+            <button class="btn" id="install">Install</button>
+            <label class="switch" title="Enable or disable Moonrush in Ryujinx">
+              <input type="checkbox" id="enabled"><span></span><em>Enabled</em>
+            </label>
+            <button class="btn ghost danger" id="uninstall">Uninstall</button>
+          </div>
+        </article>
+        <article class="card" id="card-others">
+          <header><h3>Other SMO mods</h3><span class="pill" data-pill></span></header>
+          <ul class="mods"></ul>
+        </article>
+        <article class="card wide" id="card-evidence">
+          <header><h3>Last session</h3><span class="pill" data-pill></span></header>
+          <p class="muted small" id="evidence-source"></p>
+          <ul class="checks"></ul>
+          <pre class="log" id="guest-lines" hidden></pre>
+        </article>
+        <article class="card wide" id="card-setup">
+          <header><h3>Setup</h3></header>
+          <div class="field">
+            <label for="exe-select">Ryujinx</label>
+            <div class="row">
+              <select id="exe-select"></select>
+              <input id="exe-custom" placeholder="…or paste the path to Ryujinx.exe">
+              <button class="btn ghost" id="exe-save">Use</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="game-path">Game file (optional; found automatically from Ryujinx's game folders)</label>
+            <div class="row">
+              <input id="game-path" placeholder="Auto-detect">
+              <button class="btn ghost" id="game-save">Save</button>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <!-- Settings window, opened by Play -->
+  <div class="scrim" id="settings" hidden>
+    <div class="window" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <nav class="side">
+        <h2 id="settings-title">Before you play</h2>
+        <button class="nav on" data-page="speed">Moon Speed</button>
+        <button class="nav" data-page="actions">Actions</button>
+        <button class="nav" disabled title="Planned module, not in this version">First Person <small>planned</small></button>
+      </nav>
+
+      <div class="pages">
+        <section class="page" data-page="speed">
+          <div class="page-head">
+            <div>
+              <h3>Moon Speed</h3>
+              <p class="muted">Mario's movement speed = his normal speed × this multiplier.</p>
+            </div>
+            <label class="switch big"><input type="checkbox" id="ms-enabled"><span></span><em>On</em></label>
+          </div>
+
+          <div class="chart-wrap">
+            <svg id="chart" viewBox="0 0 600 200" preserveAspectRatio="none" aria-label="Speed multiplier by Moon count"></svg>
+            <div class="chart-meta" id="chart-meta"></div>
+          </div>
+
+          <div class="field">
+            <label>Count</label>
+            <div class="seg" data-key="count">
+              <button data-v="total">Total save-file Moons</button>
+              <button data-v="current">Moons held now</button>
+            </div>
+            <p class="hint" id="count-hint"></p>
+          </div>
+
+          <div class="sliders">
+            <div class="slider">
+              <label for="ms-start">Starting speed <output id="o-start"></output></label>
+              <input type="range" id="ms-start" min="0.25" max="2" step="0.05">
+            </div>
+            <div class="slider">
+              <label for="ms-per">Gained per Moon <output id="o-per"></output></label>
+              <input type="range" id="ms-per" min="0" max="0.02" step="0.0005">
+            </div>
+            <div class="slider">
+              <label for="ms-max">Maximum speed <output id="o-max"></output></label>
+              <input type="range" id="ms-max" min="0.25" max="3" step="0.05">
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Progression curve</label>
+            <div class="seg" data-key="curve">
+              <button data-v="linear">Linear</button>
+              <button data-v="front_loaded">Fast early</button>
+              <button data-v="back_loaded">Fast late</button>
+            </div>
+          </div>
+          <p class="hint warn" id="speed-warn" hidden></p>
+        </section>
+
+        <section class="page" data-page="actions" hidden>
+          <div class="page-head">
+            <div>
+              <h3>Actions</h3>
+              <p class="muted">Which of Mario's moves the multiplier applies to. Off = that move stays vanilla.</p>
+            </div>
+          </div>
+          <div class="toggles" id="groups"></div>
+          <p class="hint">Never changed: jump height, gravity, fall speed, Cappy, captures, enemies.</p>
+        </section>
+      </div>
+
+      <footer class="foot">
+        <p class="foot-msg" id="foot-msg"></p>
+        <button class="btn ghost" id="cancel">Cancel</button>
+        <button class="btn" id="save">Save</button>
+        <button class="btn primary" id="launch">Save &amp; launch</button>
+      </footer>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
