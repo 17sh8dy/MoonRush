@@ -14,6 +14,21 @@ const GROUPS = [
   ["swim", "Swim", "Surface, underwater and seafloor-walk speeds."],
 ];
 
+// English names for the game's internal capture ids. Only ones we're sure of; others show the id.
+const CAPTURE_NAMES = {
+  Kuribo: "Goomba", Frog: "Frog", Killer: "Bullet Bill", TRex: "T-Rex", Senobi: "Uproot",
+  Megane: "Moe-Eye", Imomu: "Tropical Wiggler", Bubble: "Lava Bubble", Pukupuku: "Cheep Cheep",
+  Jugem: "Lakitu", Wanwan: "Chain Chomp", Tank: "Sherm", Motorcycle: "Motor Scooter", Yoshi: "Yoshi",
+  Bull: "Chargin' Chuck", Fastener: "Zipper", ElectricWire: "Spark Pylon", Tsukkun: "Pokio",
+};
+
+const FP_RULES = [
+  ["peek", "Hold the button to peek", "Holding it shows the normal camera until you let go. A quick tap still switches views."],
+  ["off_cutscenes", "Cutscenes & scripted cameras", "Moon gets, story scenes, and any camera the right stick can't turn."],
+  ["off_2d", "8-bit 2D sections", "The flat side-on wall sections."],
+  ["off_captures", "Captures", "Off here means you look out from the captured object instead."],
+];
+
 let status = null;
 let settings = null;
 
@@ -223,7 +238,7 @@ function syncSettingsUI() {
   $("#o-start").textContent = mult(m.start);
   $("#o-per").textContent = `+${(m.per_moon * 100).toFixed(2)}%`;
   $("#o-max").textContent = mult(m.max);
-  for (const seg of $$(".seg")) {
+  for (const seg of $$(".seg[data-key]")) {
     const v = m[seg.dataset.key];
     for (const b of $$("button", seg)) b.classList.toggle("on", b.dataset.v === v);
   }
@@ -231,6 +246,8 @@ function syncSettingsUI() {
     ? "Every Moon on this save file. Only goes up."
     : "Moons you're holding. Drops when you power up the Odyssey, so Mario slows down after paying.";
   for (const [key] of GROUPS) $(`#g-${key}`).checked = m.groups[key];
+  syncCaptures();
+  syncFirstPerson();
 
   const warns = [];
   if (m.start < 0.6) warns.push("Below 0.60× some early gaps and long jumps may be hard or impossible to clear.");
@@ -268,6 +285,42 @@ async function drawChart() {
   ].map(s => `<span>${s}</span>`).join("");
 }
 
+function syncCaptures() {
+  const c = settings.captures;
+  $("#cap-enabled").checked = c.enabled;
+  $("#cappy-enabled").checked = c.cappy;
+  $('.page[data-page="captures"]').classList.toggle("off", !c.enabled && !c.cappy);
+  const seen = status?.captures_seen || [];
+  // Names switched off but not seen in any log still get a row, so they can be switched back on.
+  const rows = [...seen];
+  for (const n of c.off) if (!rows.some(r => r.name === n)) rows.push({ name: n, path: null });
+  $("#cap-hint").textContent = rows.length
+    ? "On = sped up. A capture shows up here after you've captured it once with Moonrush installed."
+    : "Nothing yet. Captures show up here after you've captured them once with Moonrush installed.";
+  $("#cap-list").innerHTML = rows.map(r => {
+    const label = CAPTURE_NAMES[r.name] ? `${CAPTURE_NAMES[r.name]} <small class="muted">${esc(r.name)}</small>` : esc(r.name);
+    const how = r.path === "none"
+      ? "Moves a way Moonrush can't speed up (e.g. along a rail). Stays vanilla either way."
+      : r.path ? "Sped up with the multiplier." : "Not seen moving yet.";
+    return `
+    <label class="toggle">
+      <span class="switch"><input type="checkbox" data-capture="${esc(r.name)}"${c.off.includes(r.name) ? "" : " checked"}${c.enabled ? "" : " disabled"}><span></span></span>
+      <span><span class="t-title">${label}</span><p class="t-desc">${esc(how)}</p></span>
+    </label>`;
+  }).join("");
+}
+
+function syncFirstPerson() {
+  const f = settings.first_person;
+  $("#fp-enabled").checked = f.enabled;
+  $('.page[data-page="fp"]').classList.toggle("off", !f.enabled);
+  for (const b of $$('[data-fp="button"] button')) b.classList.toggle("on", b.dataset.v === f.button);
+  $("#fp-button-hint").textContent = f.peek
+    ? "Tap to switch first/third person. Hold to peek. (Not the right stick: SMO uses its click for its own look-around view.)"
+    : "Press to switch first/third person. (Not the right stick: SMO uses its click for its own look-around view.)";
+  for (const [key] of FP_RULES) $(`#fp-${key}`).checked = f[key];
+}
+
 function footMessage() {
   const f = $("#foot-msg");
   const mr = status?.moonrush;
@@ -298,6 +351,14 @@ function closeSettings() {
   $("#play").focus();
 }
 
+function buildFpRules() {
+  $("#fp-rules").innerHTML = FP_RULES.map(([key, title, desc]) => `
+    <label class="toggle">
+      <span class="switch"><input type="checkbox" id="fp-${key}" data-fp-rule="${key}"><span></span></span>
+      <span><span class="t-title">${esc(title)}</span><p class="t-desc">${esc(desc)}</p></span>
+    </label>`).join("");
+}
+
 function buildToggles() {
   $("#groups").innerHTML = GROUPS.map(([key, title, desc]) => `
     <label class="toggle">
@@ -310,6 +371,7 @@ function buildToggles() {
 
 function wire() {
   buildToggles();
+  buildFpRules();
   $("#refresh").onclick = e => busy(e.currentTarget, refresh);
   $("#play").onclick = () => openSettings().catch(e => toast(String(e), true));
   $("#cancel").onclick = closeSettings;
@@ -322,7 +384,7 @@ function wire() {
   $("#ms-start").oninput = e => { m().start = +e.target.value; if (m().max < m().start) m().max = m().start; syncSettingsUI(); };
   $("#ms-per").oninput = e => { m().per_moon = +e.target.value; syncSettingsUI(); };
   $("#ms-max").oninput = e => { m().max = +e.target.value; syncSettingsUI(); };
-  for (const seg of $$(".seg")) {
+  for (const seg of $$(".seg[data-key]")) {
     seg.onclick = e => {
       const b = e.target.closest("button");
       if (!b) return;
@@ -330,6 +392,24 @@ function wire() {
       syncSettingsUI();
     };
   }
+  $("#fp-enabled").onchange = e => { settings.first_person.enabled = e.target.checked; syncFirstPerson(); };
+  $("#fp-rules").onchange = e => {
+    const k = e.target.dataset.fpRule;
+    if (k) { settings.first_person[k] = e.target.checked; syncFirstPerson(); }
+  };
+  $('[data-fp="button"]').onclick = e => {
+    const b = e.target.closest("button");
+    if (b) { settings.first_person.button = b.dataset.v; syncFirstPerson(); }
+  };
+  $("#cap-enabled").onchange = e => { settings.captures.enabled = e.target.checked; syncCaptures(); };
+  $("#cappy-enabled").onchange = e => { settings.captures.cappy = e.target.checked; syncCaptures(); };
+  $("#cap-list").onchange = e => {
+    const n = e.target.dataset.capture;
+    if (!n) return;
+    const off = new Set(settings.captures.off);
+    if (e.target.checked) off.delete(n); else off.add(n);
+    settings.captures.off = [...off].sort();
+  };
   $("#groups").onchange = e => {
     const g = e.target.dataset.group;
     if (g) m().groups[g] = e.target.checked;

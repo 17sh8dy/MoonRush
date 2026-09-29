@@ -91,7 +91,8 @@
         <h2 id="settings-title">Before you play</h2>
         <button class="nav on" data-page="speed">Moon Speed</button>
         <button class="nav" data-page="actions">Actions</button>
-        <button class="nav" disabled title="Planned module, not in this version">First Person <small>planned</small></button>
+        <button class="nav" data-page="captures">Captures</button>
+        <button class="nav" data-page="fp">First Person</button>
       </nav>
 
       <div class="pages">
@@ -152,7 +153,55 @@
             </div>
           </div>
           <div class="toggles" id="groups"></div>
-          <p class="hint">Never changed: jump height, gravity, fall speed, Cappy, captures, enemies.</p>
+          <p class="hint">Never changed: jump height, gravity, fall speed, enemies. Captures and Cappy have their own page.</p>
+        </section>
+
+        <section class="page" data-page="captures" hidden>
+          <div class="page-head">
+            <div>
+              <h3>Captures</h3>
+              <p class="muted">Whatever Mario has captured moves at the same Moon multiplier as Mario, from the Moon Speed page. Only sideways movement changes: jumps and falls stay vanilla.</p>
+            </div>
+            <label class="switch big"><input type="checkbox" id="cap-enabled"><span></span><em>On</em></label>
+          </div>
+
+          <label class="toggle">
+            <span class="switch"><input type="checkbox" id="cappy-enabled"><span></span></span>
+            <span><span class="t-title">Cappy throws too</span><p class="t-desc">Cappy's throw speed and reach follow the multiplier. Makes far targets easier to hit. Off by default.</p></span>
+          </label>
+
+          <div class="field">
+            <label>Per capture</label>
+            <p class="hint" id="cap-hint"></p>
+            <div class="toggles" id="cap-list"></div>
+          </div>
+        </section>
+
+        <section class="page" data-page="fp" hidden>
+          <div class="page-head">
+            <div>
+              <h3>First Person</h3>
+              <p class="muted">See through Mario's eyes. The right stick and movement work exactly as normal, and Mario is hidden. Camera only: nothing about gameplay changes.</p>
+            </div>
+            <label class="switch big"><input type="checkbox" id="fp-enabled"><span></span><em>On</em></label>
+          </div>
+
+          <div class="field">
+            <label>In-game button</label>
+            <div class="seg" data-fp="button">
+              <button data-v="lstick">Left-stick click</button>
+              <button data-v="dpad_up">D-pad ↑</button>
+              <button data-v="dpad_down">D-pad ↓</button>
+              <button data-v="dpad_left">D-pad ←</button>
+              <button data-v="dpad_right">D-pad →</button>
+            </div>
+            <p class="hint" id="fp-button-hint"></p>
+          </div>
+
+          <div class="field">
+            <label>Switch back to the normal camera</label>
+            <div class="toggles" id="fp-rules"></div>
+          </div>
         </section>
       </div>
 

@@ -50,6 +50,42 @@ and launcher page.
 
 Not touched: jump height, gravity, fall speed, Cappy, captures, enemies, anything outside Mario.
 
+## Captures + Cappy (approved 2026-09-28, v0.3.0, played 2026-09-28)
+
+- Captures use the **same multiplier** as Mario. **All captures scale**, with per-capture off switches in the launcher.
+  **Cappy** throw speed/reach: **optional toggle, default off**.
+- How: hooks `al::Collider::collide` and `PlayerCollider::collide`. When the collider's trans pointer is the captured
+  actor's, the sideways part of the move (perpendicular to gravity) is multiplied before collision runs, so walls
+  are still checked over the full distance. Vertical part and the actor's own velocity are untouched (no compounding).
+- Captures that move another way (rails, fixed, `isCollideOff`) are not sped up. The log line
+  `capture: name=X moves through Collider|PlayerCollider|none` says which, and the launcher shows it per capture.
+- Capture names are the game's internal ids (HackObjInfo). The launcher learns them from Ryujinx logs
+  (`captures_seen.json` in %APPDATA%\Moonrush) and shows English names only for ids we're sure of.
+- Cappy: multiplies MaxSpeed, ContinuousThrowSpeed, Reach, ReturnMaxSpeed, the water versions, tornado reach and
+  roll speed/reach in place (HackCapThrowParam at HackCap+0x220). Heights, times and angles stay vanilla. Originals are
+  remembered and restored when the toggle is off. Never writes to the shared "missing param" value.
+
+## First Person (approved 2026-09-28, v0.3.0, played 2026-09-28)
+
+- Normal controls (right stick looks, movement camera-relative), eye in Mario's head, **Mario hidden completely**.
+- Launcher switch + in-game button: **tap** = switch first/third person, **hold** = peek (optional). Default button is
+  the **left-stick click**. The right-stick click is never offered: SMO uses it for its own look-around view
+  (`PlayerInputFunction::isTriggerCameraSubjective`).
+- Auto-off rules, each a launcher toggle (all on by default): cutscenes & scripted cameras (`rs::isActiveDemo`, or the
+  camera can't be turned by the stick), 8-bit 2D (`rs::isPlayer2D`), captures (off = view from the captured object).
+- How: hook `CameraPoseUpdater::exeActive`. After the game poses its camera, move pos to the eye and keep the view
+  direction. Eye = Mario's position + up x 0.85 x PlayerConst::mTall (0.6 for captures). Near clip lowered 100 -> 15
+  while in first person and restored afterwards. Mario is hidden by hooking `PlayerModelChangerHakoniwa::syncShowHide`
+  and zeroing his show flags only for that call, so the game's own visibility state is never changed.
+- Played 2026-09-28 (Brandon: good). Log: first person on/off via the button (D-pad right) and auto-off for a
+  capture; Uproot (`Senobi`) sped up through PlayerCollider (x2.035-2.060); Cappy x2.035 (MaxSpeed 32 -> 65.1,
+  Reach 500 -> 1017.5). Only Uproot captured so far, so other captures' paths are still unknown.
+- Freezes (5-15 s, "GPU processing thread is too slow" + "WaitOnSyncpoint ... 1000ms") happen in every logged session,
+  including the Moonrush-only v0.2.0 one, and line up with the game's sequences (Moon gets, messages), not with any
+  Moonrush event. No Moonrush-free baseline session exists yet to compare against.
+- Still to check in play: Cappy on Mario's head in view? Eye height when crouching/rolling (fixed height for now)?
+  Walls closer than 15 units still cut away? Captured objects seen from inside when the capture rule is off?
+
 ## Known risks
 
 - Very high speed can push Mario through thin walls (collision is checked per frame). Hence the max-speed cap.
@@ -59,7 +95,7 @@ Not touched: jump height, gravity, fall speed, Cappy, captures, enemies, anythin
 ## Decisions (Brandon, 2026-09-27)
 
 - Start below vanilla: 0.75x, +0.25%/Moon, linear, cap 2.0x, total save-file Moons. All 7 groups on.
-- Cappy/capture movement: separate module, later. First Person: planned page only.
+- Cappy/capture movement: separate module (built 2026-09-28, see above). First Person: built 2026-09-28, see above.
 - Randomizer conflict (it hooks 14 of the same getters for its own speed options): **stack**, i.e.
   final = randomizer value x Moon multiplier.
 

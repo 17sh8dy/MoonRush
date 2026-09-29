@@ -1,6 +1,6 @@
 # Moonrush
 
-A modular gameplay mod for **Super Mario Odyssey 1.0.0 on Ryujinx**. Its first module, **Moon Speed**,
+A modular gameplay mod for **Super Mario Odyssey 1.0.0 on Ryujinx**: Moon Speed, Captures, Cappy and First Person. Its first module, **Moon Speed**,
 makes Mario's movement faster the more Moons you have. It comes with a Windows launcher:
 **Play** → settings pages → **Save & launch**.
 
@@ -57,6 +57,8 @@ Verified by playing, and from real Ryujinx logs:
 - **Together with the SMO Randomizer** (exefs subsdk4 + romfs): both load. Ryujinx warns "Multiple replacements to
   'main.npdm'", but that's harmless. Moonrush follows the randomizer save's Moons (3→6, multiplier 2.015→2.030).
   The randomizer doesn't touch Mario's speed values.
+- **v0.3.0 Captures, Cappy and First Person** played: Uproot sped up with the multiplier, Cappy's throw scaled
+  (reach 500 → 1017.5 at 2.035×), and First Person switched on/off with the button and turned itself off for a capture.
 - The launcher's install, update, enable and settings file were checked in the real app.
 
 ## License

@@ -1,7 +1,7 @@
 mod ryujinx;
 mod settings;
 
-use ryujinx::{Game, Install, LogEvidence, ModInfo};
+use ryujinx::{CaptureSeen, Game, Install, LogEvidence, ModInfo};
 use serde::{Deserialize, Serialize};
 use settings::Settings;
 use std::fs;
@@ -110,6 +110,31 @@ struct Status {
     settings_written: bool,
     ryujinx_running: bool,
     expected_build_id: &'static str,
+    /// Every capture the game module has reported, kept across log rotation.
+    captures_seen: Vec<CaptureSeen>,
+}
+
+/// Captures from %APPDATA%\Moonrush\captures_seen.json plus any new ones in Ryujinx's logs.
+fn captures_seen(exe: Option<&Path>) -> Vec<CaptureSeen> {
+    let file = home().join("captures_seen.json");
+    let mut known: Vec<CaptureSeen> = read_json(&file);
+    let before = known.clone();
+    if let Some(exe) = exe {
+        for c in ryujinx::captures_in_logs(exe) {
+            match known.iter_mut().find(|k| k.name == c.name) {
+                Some(k) => {
+                    if c.path.as_deref().is_some_and(|p| p != "none") || k.path.is_none() {
+                        k.path = c.path.or(k.path.take());
+                    }
+                }
+                None => known.push(c),
+            }
+        }
+    }
+    if known != before {
+        let _ = write_json(&file, &known);
+    }
+    known
 }
 
 fn same_files(a: &Path, b: &Path) -> bool {
@@ -146,6 +171,7 @@ fn get_status() -> Status {
             settings_written: false,
             ryujinx_running: running,
             expected_build_id: ryujinx::SMO_100_BUILD_ID,
+            captures_seen: captures_seen(None),
         };
     };
     let data = ryujinx::data_dir(&exe);
@@ -222,6 +248,7 @@ fn get_status() -> Status {
         settings_file: Some(ini.to_string_lossy().to_string()),
         ryujinx_running: running,
         expected_build_id: ryujinx::SMO_100_BUILD_ID,
+        captures_seen: captures_seen(Some(&exe)),
     }
 }
 

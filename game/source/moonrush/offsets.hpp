@@ -12,12 +12,58 @@ constexpr uintptr_t PlayerActorHakoniwa_movement = 0x41dd34;  // _ZN19PlayerActo
 constexpr uintptr_t GameDataFunction_getTotalShineNum = 0x528a64;  // _ZN16GameDataFunction16getTotalShineNumE22GameDataHolderAccessori
 constexpr uintptr_t GameDataFunction_getCurrentShineNum = 0x5289a4;  // _ZN16GameDataFunction18getCurrentShineNumE22GameDataHolderAccessor
 constexpr uintptr_t al_getSceneObj = 0x9cf008;  // _ZN2al11getSceneObjEPKNS_18IUseSceneObjHolderEi
+constexpr uintptr_t al_Collider_collide = 0x8456d0;  // _ZN2al8Collider7collideERKN4sead7Vector3IfEE
+constexpr uintptr_t PlayerCollider_collide = 0x4300e0;  // _ZN14PlayerCollider7collideERKN4sead7Vector3IfEE
+constexpr uintptr_t al_getTransPtr = 0x8eed20;  // _ZN2al11getTransPtrEPNS_9LiveActorE
+constexpr uintptr_t al_findActorParamF32 = 0x8ec3e8;  // _ZN2al17findActorParamF32EPKNS_9LiveActorEPKc
+constexpr uintptr_t CameraPoseUpdater_exeActive = 0x837f90;  // _ZN2al17CameraPoseUpdater9exeActiveEv
+constexpr uintptr_t CameraPoseUpdater_isCurrentCameraEnableRotateByPad = 0x838600;  // _ZNK2al17CameraPoseUpdater32isCurrentCameraEnableRotateByPadEv
+constexpr uintptr_t PlayerModelChangerHakoniwa_syncShowHide = 0x45e22c;  // _ZN26PlayerModelChangerHakoniwa12syncShowHideEPN2al9LiveActorE
+constexpr uintptr_t rs_isActiveDemo = 0x5508d4;  // _ZN2rs12isActiveDemoEPKN2al9LiveActorE
+constexpr uintptr_t rs_isPlayer2D = 0x570a1c;  // _ZN2rs10isPlayer2DEPKN2al9LiveActorE
+constexpr uintptr_t al_getTrans = 0x8ee66c;  // _ZN2al8getTransEPKNS_9LiveActorE
+constexpr uintptr_t al_getGravity = 0x8ee64c;  // _ZN2al10getGravityEPKNS_9LiveActorE
+constexpr uintptr_t al_isPadHoldPressLeftStick = 0x85ddb0;  // _ZN2al23isPadHoldPressLeftStickEi
+constexpr uintptr_t al_isPadHoldUp = 0x85f7b8;  // _ZN2al11isPadHoldUpEi
+constexpr uintptr_t al_isPadHoldDown = 0x85f850;  // _ZN2al13isPadHoldDownEi
+constexpr uintptr_t al_isPadHoldLeft = 0x85f8e8;  // _ZN2al13isPadHoldLeftEi
+constexpr uintptr_t al_isPadHoldRight = 0x85f980;  // _ZN2al14isPadHoldRightEi
 
 // Object layout (verified in disassembly).
 constexpr size_t PlayerActorHakoniwa_mConst = 0x130;
 constexpr size_t LiveActor_IUseSceneObjHolder = 0x20;
 constexpr int SceneObjId_GameDataHolder = 18;
 constexpr size_t PlayerConst_size = 0x9a8;
+constexpr size_t PlayerActorHakoniwa_mHackKeeper = 0x208;
+constexpr size_t PlayerHackKeeper_mHackCap = 0x8;
+constexpr size_t PlayerHackKeeper_mHackActor = 0x68;
+constexpr size_t PlayerHackKeeper_mHackSensor = 0x70;
+constexpr size_t PlayerHackKeeper_mHackObjInfo = 0x78;  // HackObjInfo: first field is the capture name
+constexpr size_t HackCap_mThrowParam = 0x220;
+constexpr size_t Collider_mTransPtr = 0x28;
+constexpr size_t Collider_mGravityPtr = 0x30;
+constexpr size_t PlayerCollider_mTransPtr = 0x18;
+constexpr size_t PlayerCollider_mGravityPtr = 0x20;
+constexpr uintptr_t ActorParam_missing = 0x1923d60;  // what findActorParamF32 returns when there is no param
+constexpr size_t CameraPoseUpdater_mIsMainView = 0x38;
+constexpr size_t CameraPoseUpdater_mPos = 0x78;
+constexpr size_t CameraPoseUpdater_mAt = 0x84;
+constexpr size_t CameraPoseUpdater_mUp = 0x90;
+constexpr size_t CameraPoseUpdater_mTicket = 0xa0;
+constexpr size_t CameraPoseUpdater_mNearClipDistance = 0xb8;
+constexpr size_t CameraPoser_mNearClip = 0x64;
+constexpr size_t PlayerModelChanger_mShowFlags = 0x41;  // model, silhouette, shadow (1 byte each)
+constexpr size_t PlayerConst_mTall = 0x54;
+constexpr size_t PlayerActorHakoniwa_mModelChanger = 0x160;  // syncHost call sites: ldr x0, [x19, #352]
+
+// HackCapThrowParam fields Cappy scaling multiplies (ActorParamF32* each). Heights, times, angles stay vanilla.
+struct CappyParam { uint16_t offset; const char* what; };
+constexpr CappyParam k_cappy[] = {
+    {0x08, "MaxSpeed"}, {0x10, "ContinuousThrowSpeed"}, {0x20, "Reach"}, {0x40, "ReturnMaxSpeed"},
+    {0x50, "WaterMaxSpeed"}, {0x58, "WaterReach"}, {0x68, "WaterReturnMaxSpeed"},
+    {0x70, "TornadoReach"}, {0x78, "TornadoMaxReach"},
+    {0x88, "RollSpeed"}, {0x90, "RollReachUp"}, {0x98, "RollReachDown"},
+};
 
 // offset: field inside PlayerConst. getter: the 8-byte `ldr s0, [x0, #offset]; ret` function Moonrush hooks.
 struct Field { const char* name; uint16_t offset; uintptr_t getter; };
@@ -91,6 +137,22 @@ constexpr Signature k_signatures[] = {
     {0x528a64, {0x3100043f, 0x540000c0, 0xa9bf7bfd, 0x910003fd}, 4, false, "GameDataFunction_getTotalShineNum"},
     {0x5289a4, {0xf81c0ff7, 0xa90157f6, 0xa9024ff4, 0xa9037bfd}, 4, false, "GameDataFunction_getCurrentShineNum"},
     {0x9cf008, {0xf81e0ff3, 0xa9017bfd, 0x910043fd, 0xf9400008}, 4, false, "al_getSceneObj"},
+    {0x8456d0, {0xd10583ff, 0x6d0d3bef, 0x6d0e33ed, 0x6d0f2beb}, 4, false, "al_Collider_collide"},
+    {0x4300e0, {0xd10543ff, 0xfd007bec, 0x6d102beb, 0x6d1123e9}, 4, false, "PlayerCollider_collide"},
+    {0x8eed20, {0xf9402808, 0x91002100, 0xd65f03c0, 0xf9402808}, 4, false, "al_getTransPtr"},
+    {0x8ec3e8, {0xf9407800, 0xb4000040, 0x17fffe6c, 0xf00081a0}, 4, false, "al_findActorParamF32"},
+    {0x837f90, {0xd10243ff, 0xf90033f5, 0xa9074ff4, 0xa9087bfd}, 4, false, "CameraPoseUpdater_exeActive"},
+    {0x838600, {0xf9405008, 0xb40000a8, 0xf9400100, 0xf9400008}, 4, false, "CameraPoseUpdater_isCurrentCameraEnableRotateByPad"},
+    {0x45e22c, {0xa9be4ff4, 0xa9017bfd, 0x910043fd, 0xaa0003f4}, 4, false, "PlayerModelChangerHakoniwa_syncShowHide"},
+    {0x5508d4, {0xa9bf7bfd, 0x910003fd, 0x940ef531, 0xf9401000}, 4, false, "rs_isActiveDemo"},
+    {0x570a1c, {0xa9bf7bfd, 0x910003fd, 0x2a1f03e1, 0x9410cd52}, 4, false, "rs_isPlayer2D"},
+    {0x8ee66c, {0xf9402808, 0x91002100, 0xd65f03c0, 0xa9bf7bfd}, 4, false, "al_getTrans"},
+    {0x8ee64c, {0xa9bf7bfd, 0x910003fd, 0xf9402800, 0xf9400008}, 4, false, "al_getGravity"},
+    {0x85ddb0, {0xf81e0ff3, 0xa9017bfd, 0x910043fd, 0x2a0003f3}, 4, false, "al_isPadHoldPressLeftStick"},
+    {0x85f7b8, {0xf81e0ff3, 0xa9017bfd, 0x910043fd, 0x2a0003f3}, 4, false, "al_isPadHoldUp"},
+    {0x85f850, {0xf81e0ff3, 0xa9017bfd, 0x910043fd, 0x2a0003f3}, 4, false, "al_isPadHoldDown"},
+    {0x85f8e8, {0xf81e0ff3, 0xa9017bfd, 0x910043fd, 0x2a0003f3}, 4, false, "al_isPadHoldLeft"},
+    {0x85f980, {0xf81e0ff3, 0xa9017bfd, 0x910043fd, 0x2a0003f3}, 4, false, "al_isPadHoldRight"},
     {0x43d04c, {0xbd40f000, 0xd65f03c0}, 2, true, "getNormalMinSpeed"},
     {0x43d044, {0xbd40ec00, 0xd65f03c0}, 2, true, "getNormalMaxSpeed"},
     {0x43d084, {0xbd410c00, 0xd65f03c0}, 2, true, "getRunAfterTurnSpeedMax"},

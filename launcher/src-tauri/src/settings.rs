@@ -46,9 +46,73 @@ pub struct MoonSpeed {
     pub groups: Groups,
 }
 
+/// Captures follow the same multiplier as Mario. `off` = internal capture names left vanilla.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Captures {
+    pub enabled: bool,
+    pub off: Vec<String>,
+    /// Cappy's throw speed and reach follow the multiplier too. Off unless turned on.
+    pub cappy: bool,
+}
+
+impl Default for Captures {
+    fn default() -> Self {
+        Captures { enabled: true, off: vec![], cappy: false }
+    }
+}
+
+/// First Person button. Never the right-stick click: SMO uses it for its own look-around view.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FpButton {
+    Lstick,
+    DpadUp,
+    DpadDown,
+    DpadLeft,
+    DpadRight,
+}
+
+/// Camera in Mario's head. Camera only: no gameplay change.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FirstPerson {
+    pub enabled: bool,
+    /// Tap = switch first/third person in game.
+    pub button: FpButton,
+    /// Hold the button to peek at third person.
+    pub peek: bool,
+    pub off_cutscenes: bool,
+    pub off_2d: bool,
+    pub off_captures: bool,
+}
+
+impl Default for FirstPerson {
+    fn default() -> Self {
+        FirstPerson {
+            enabled: false,
+            button: FpButton::Lstick,
+            peek: true,
+            off_cutscenes: true,
+            off_2d: true,
+            off_captures: true,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     pub moon_speed: MoonSpeed,
+    /// Missing in settings saved before v0.3.0, so these fall back to the defaults.
+    #[serde(default)]
+    pub captures: Captures,
+    #[serde(default)]
+    pub first_person: FirstPerson,
+}
+
+/// Capture names are the game's internal ids ("Kuribo", "TRex"): letters, digits, underscore.
+pub fn is_capture_name(n: &str) -> bool {
+    !n.is_empty() && n.len() < 32 && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 pub const START_MIN: f32 = 0.25;
@@ -77,6 +141,8 @@ impl Default for Settings {
                     swim: true,
                 },
             },
+            captures: Captures::default(),
+            first_person: FirstPerson::default(),
         }
     }
 }
@@ -93,6 +159,11 @@ impl Settings {
         m.start = finite_or(m.start, d.start).clamp(START_MIN, START_MAX);
         m.per_moon = finite_or(m.per_moon, d.per_moon).clamp(0.0, PER_MOON_MAX);
         m.max = finite_or(m.max, d.max).clamp(m.start, MAX_CEILING);
+        let c = &mut self.captures;
+        c.off.retain(|n| is_capture_name(n));
+        c.off.sort();
+        c.off.dedup();
+        c.off.truncate(48);
         self
     }
 }
@@ -128,6 +199,7 @@ fn b(v: bool) -> &'static str {
 pub fn to_ini(s: &Settings) -> String {
     let m = &s.moon_speed;
     let g = &m.groups;
+    let fp = &s.first_person;
     let count = match m.count {
         CountSource::Total => "total",
         CountSource::Current => "current",
@@ -152,9 +224,30 @@ pub fn to_ini(s: &Settings) -> String {
          moon_speed.roll={}\n\
          moon_speed.long_jump={}\n\
          moon_speed.air={}\n\
-         moon_speed.swim={}\n",
+         moon_speed.swim={}\n\
+         captures.enabled={}\n\
+         captures.off={}\n\
+         cappy.enabled={}\n\
+         first_person.enabled={}\n\
+         first_person.button={}\n\
+         first_person.peek={}\n\
+         first_person.off_cutscenes={}\n\
+         first_person.off_2d={}\n\
+         first_person.off_captures={}\n",
         b(m.enabled), count, m.start, m.per_moon, m.max, curve,
         b(g.walk), b(g.squat), b(g.dive), b(g.roll), b(g.long_jump), b(g.air), b(g.swim),
+        b(s.captures.enabled),
+        s.captures.off.iter().filter(|n| is_capture_name(n)).cloned().collect::<Vec<_>>().join(","),
+        b(s.captures.cappy),
+        b(fp.enabled),
+        match fp.button {
+            FpButton::Lstick => "lstick",
+            FpButton::DpadUp => "dpad_up",
+            FpButton::DpadDown => "dpad_down",
+            FpButton::DpadLeft => "dpad_left",
+            FpButton::DpadRight => "dpad_right",
+        },
+        b(fp.peek), b(fp.off_cutscenes), b(fp.off_2d), b(fp.off_captures),
     )
 }
 
@@ -211,6 +304,40 @@ mod tests {
     }
 
     #[test]
+    fn capture_switches_are_cleaned_and_written() {
+        let mut s = Settings::default();
+        s.captures.off = vec!["TRex".into(), "Kuribo".into(), "bad name".into(), "Kuribo".into(), "a,b".into()];
+        s.captures.cappy = true;
+        let s = s.sanitized();
+        assert_eq!(s.captures.off, vec!["Kuribo", "TRex"]);
+        let ini = to_ini(&s);
+        assert!(ini.contains("captures.off=Kuribo,TRex\n"));
+        assert!(ini.contains("cappy.enabled=1\n"));
+    }
+
+    #[test]
+    fn old_settings_json_without_captures_still_loads() {
+        let old = r#"{"moon_speed":{"enabled":true,"count":"total","start":0.75,"per_moon":0.0025,"max":2.0,
+            "curve":"linear","groups":{"walk":true,"squat":true,"dive":true,"roll":true,"long_jump":true,"air":true,"swim":true}}}"#;
+        let s: Settings = serde_json::from_str(old).unwrap();
+        assert_eq!(s.captures, Captures::default());
+        assert_eq!(s.first_person, FirstPerson::default());
+    }
+
+    #[test]
+    fn first_person_keys() {
+        let mut s = Settings::default();
+        s.first_person.enabled = true;
+        s.first_person.button = FpButton::DpadDown;
+        s.first_person.off_captures = false;
+        let ini = to_ini(&s);
+        for key in ["first_person.enabled=1\n", "first_person.button=dpad_down\n", "first_person.peek=1\n",
+                    "first_person.off_cutscenes=1\n", "first_person.off_2d=1\n", "first_person.off_captures=0\n"] {
+            assert!(ini.contains(key), "missing {key}");
+        }
+    }
+
+    #[test]
     fn shared_curve_vectors() {
         let text = include_str!("../../../tests/curve_vectors.txt");
         let mut n = 0;
@@ -246,7 +373,8 @@ mod tests {
         for key in [
             "moon_speed.enabled=1", "moon_speed.count=total", "moon_speed.start=0.7500",
             "moon_speed.per_moon=0.00250", "moon_speed.max=2.0000", "moon_speed.curve=linear",
-            "moon_speed.walk=1", "moon_speed.swim=1",
+            "moon_speed.walk=1", "moon_speed.swim=1", "captures.enabled=1", "captures.off=\n",
+            "cappy.enabled=0",
         ] {
             assert!(ini.contains(key), "missing {key}");
         }

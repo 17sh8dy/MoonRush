@@ -1,6 +1,6 @@
 //! Everything the launcher knows about Ryujinx, SMO and installed mods, read from real files on disk.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -377,9 +377,71 @@ pub fn read_log(exe: &Path) -> LogEvidence {
     ev
 }
 
+/// A capture the game module reported ("[Moonrush] capture: name=Kuribo ..."), and how it moves.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct CaptureSeen {
+    pub name: String,
+    /// "Collider" / "PlayerCollider" = Moonrush can speed it up. "none" = it moves some other way.
+    pub path: Option<String>,
+}
+
+/// Captures reported in one log's text, first-seen order.
+pub fn parse_captures(text: &str, out: &mut Vec<CaptureSeen>) {
+    for line in text.lines() {
+        let Some(at) = line.find("[Moonrush] capture: name=") else { continue };
+        let rest = &line[at + "[Moonrush] capture: name=".len()..];
+        let name = rest.split_whitespace().next().unwrap_or("");
+        if !crate::settings::is_capture_name(name) {
+            continue;
+        }
+        let path = rest.split("moves through ").nth(1).map(|p| p.trim().to_string());
+        match out.iter_mut().find(|c| c.name == name) {
+            Some(c) => {
+                // "none" is only reported before the first move, so a real path wins.
+                if path.as_deref().is_some_and(|p| p != "none") || c.path.is_none() {
+                    c.path = path.or(c.path.take());
+                }
+            }
+            None => out.push(CaptureSeen { name: name.to_string(), path }),
+        }
+    }
+}
+
+/// Every capture reported in any of Ryujinx's logs.
+pub fn captures_in_logs(exe: &Path) -> Vec<CaptureSeen> {
+    let mut out = Vec::new();
+    let Some(dir) = exe.parent().map(|d| d.join("Logs")) else { return out };
+    let mut files: Vec<PathBuf> = fs::read_dir(dir)
+        .map(|r| r.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "log")).collect())
+        .unwrap_or_default();
+    files.sort_by_key(|p| mtime(p));
+    for f in files {
+        if let Ok(b) = fs::read(&f) {
+            parse_captures(&String::from_utf8_lossy(&b), &mut out);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_capture_lines() {
+        let mut out = vec![CaptureSeen { name: "Frog".into(), path: Some("PlayerCollider".into()) }];
+        parse_captures(
+            "1 |W| KernelSvc OutputDebugString: [Moonrush] capture: name=Kuribo mult=2.030\n\
+             2 |W| KernelSvc OutputDebugString: [Moonrush] capture: name=Kuribo moves through none\n\
+             3 |W| KernelSvc OutputDebugString: [Moonrush] capture: name=Kuribo moves through Collider\n\
+             4 |W| KernelSvc OutputDebugString: [Moonrush] capture: name=Frog mult=1.000 (switched off)\n\
+             5 |W| KernelSvc OutputDebugString: [Moonrush] capture: name=? mult=2.030\n",
+            &mut out,
+        );
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].path.as_deref(), Some("PlayerCollider"));
+        assert_eq!(out[1], CaptureSeen { name: "Kuribo".into(), path: Some("Collider".into()) });
+    }
 
     #[test]
     fn parses_real_log_shapes() {

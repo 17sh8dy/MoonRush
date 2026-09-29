@@ -12,6 +12,9 @@ namespace moonrush {
 
     enum Group { Walk, Squat, Dive, Roll, LongJump, Air, Swim, GroupCount };
 
+    // First Person button. Never the right-stick click: SMO uses it for its own look-around view.
+    enum class FpButton { LeftStick, DpadUp, DpadDown, DpadLeft, DpadRight };
+
     inline constexpr const char* kGroupKeys[GroupCount] = {
         "walk", "squat", "dive", "roll", "long_jump", "air", "swim",
     };
@@ -25,6 +28,32 @@ namespace moonrush {
         float max = 2.0f;
         Curve curve = Curve::Linear;
         bool groups[GroupCount] = { true, true, true, true, true, true, true };
+
+        // Captures module: whatever Mario has captured moves sideways at the same multiplier.
+        bool captures = true;
+        // Captures to leave vanilla, by the game's internal capture name ("Kuribo", "Frog", ...).
+        static constexpr int kMaxCapturesOff = 48;
+        static constexpr int kNameLen = 32;
+        char capturesOff[kMaxCapturesOff][kNameLen] = {};
+        int capturesOffCount = 0;
+
+        // Cappy: throw speed and reach follow the multiplier. Off unless turned on.
+        bool cappy = false;
+
+        // First Person: camera in Mario's head, Mario hidden. Camera only, no gameplay change.
+        bool firstPerson = false;
+        FpButton fpButton = FpButton::LeftStick;  // tap = switch view; hold = peek (if fpPeek)
+        bool fpPeek = true;
+        bool fpOffCutscenes = true;               // cutscenes and cameras the stick can't turn
+        bool fpOff2D = true;                      // 8-bit 2D sections
+        bool fpOffCaptures = true;                // otherwise: view from the captured object
+
+        bool isCaptureOff(const char* name) const {
+            if (name == nullptr) return false;
+            for (int i = 0; i < capturesOffCount; i++)
+                if (strcmp(capturesOff[i], name) == 0) return true;
+            return false;
+        }
     };
 
     inline constexpr float kStartMin = 0.25f;
@@ -65,6 +94,31 @@ namespace moonrush {
         inline bool eq(const char* s, size_t n, const char* lit) {
             return strlen(lit) == n && memcmp(s, lit, n) == 0;
         }
+
+        inline bool isNameChar(char c) {
+            return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+        }
+
+        // "Kuribo, Frog,TRex" -> list. Names with other characters, or too long, are skipped.
+        inline void parseNameList(Settings& s, const char* v, size_t n) {
+            s.capturesOffCount = 0;
+            size_t i = 0;
+            while (i < n) {
+                while (i < n && (v[i] == ',' || isSpace(v[i]))) i++;
+                size_t a = i;
+                while (i < n && v[i] != ',') i++;
+                size_t b = i;
+                while (b > a && isSpace(v[b - 1])) b--;
+                size_t len = b - a;
+                if (len == 0 || len >= static_cast<size_t>(Settings::kNameLen)) continue;
+                bool ok = true;
+                for (size_t k = a; k < b; k++) ok &= isNameChar(v[k]);
+                if (!ok || s.capturesOffCount >= Settings::kMaxCapturesOff) continue;
+                memcpy(s.capturesOff[s.capturesOffCount], v + a, len);
+                s.capturesOff[s.capturesOffCount][len] = 0;
+                s.capturesOffCount++;
+            }
+        }
     }
 
     // Clamp into the safe range. Mirrors Settings::sanitized() in the launcher.
@@ -102,13 +156,30 @@ namespace moonrush {
             const char* val = text + va;
             size_t vn = b - va;
 
+            bool flag = eq(val, vn, "1");
+            if (eq(key, kn, "captures.enabled")) { s.captures = flag; continue; }
+            if (eq(key, kn, "captures.off")) { parseNameList(s, val, vn); continue; }
+            if (eq(key, kn, "cappy.enabled")) { s.cappy = flag; continue; }
+            if (eq(key, kn, "first_person.enabled")) { s.firstPerson = flag; continue; }
+            if (eq(key, kn, "first_person.peek")) { s.fpPeek = flag; continue; }
+            if (eq(key, kn, "first_person.off_cutscenes")) { s.fpOffCutscenes = flag; continue; }
+            if (eq(key, kn, "first_person.off_2d")) { s.fpOff2D = flag; continue; }
+            if (eq(key, kn, "first_person.off_captures")) { s.fpOffCaptures = flag; continue; }
+            if (eq(key, kn, "first_person.button")) {
+                s.fpButton = eq(val, vn, "dpad_up") ? FpButton::DpadUp
+                           : eq(val, vn, "dpad_down") ? FpButton::DpadDown
+                           : eq(val, vn, "dpad_left") ? FpButton::DpadLeft
+                           : eq(val, vn, "dpad_right") ? FpButton::DpadRight
+                           : FpButton::LeftStick;
+                continue;
+            }
+
             static constexpr char kPrefix[] = "moon_speed.";
             constexpr size_t kPrefixLen = sizeof(kPrefix) - 1;
             if (kn <= kPrefixLen || memcmp(key, kPrefix, kPrefixLen) != 0) continue;
             key += kPrefixLen;
             kn -= kPrefixLen;
 
-            bool flag = eq(val, vn, "1");
             float f;
             if (eq(key, kn, "enabled")) s.enabled = flag;
             else if (eq(key, kn, "count")) s.countTotal = !eq(val, vn, "current");

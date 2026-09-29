@@ -44,6 +44,31 @@ int main(int argc, char** argv) {
     CHECK(std::fabs(s.start - 0.75f) < 1e-6f && std::fabs(s.perMoon - 0.0025f) < 1e-6f && std::fabs(s.max - 2.0f) < 1e-6f, "numbers");
     CHECK(s.curve == moonrush::Curve::Linear, "curve");
     for (int g = 0; g < moonrush::GroupCount; g++) CHECK(s.groups[g], "group %d", g);
+    CHECK(s.captures && !s.cappy && s.capturesOffCount == 0, "captures on, cappy off, nothing switched off");
+
+    // Capture switches: spaces, CRLF, empty entries and invalid names.
+    const char* caps = "captures.enabled=1\ncaptures.off= Kuribo, TRex ,bad name,,Frog\r\ncappy.enabled=1\n";
+    auto cs = moonrush::parseSettings(caps, std::strlen(caps));
+    CHECK(cs.capturesOffCount == 3, "3 valid names (%d)", cs.capturesOffCount);
+    CHECK(cs.isCaptureOff("Kuribo") && cs.isCaptureOff("TRex") && cs.isCaptureOff("Frog"), "names parsed");
+    CHECK(!cs.isCaptureOff("Killer") && !cs.isCaptureOff(nullptr), "others stay on");
+    CHECK(cs.cappy, "cappy=1");
+    auto capsOff = moonrush::parseSettings("captures.enabled=0\n", 19);
+    CHECK(!capsOff.captures, "captures.enabled=0");
+    // Settings written before v0.3.0 have no captures keys: Captures defaults on, Cappy off.
+    auto old = moonrush::parseSettings("moon_speed.enabled=1\n", 21);
+    CHECK(old.captures && !old.cappy, "old file defaults");
+    CHECK(!old.firstPerson && old.fpPeek && old.fpOffCutscenes && old.fpOff2D && old.fpOffCaptures &&
+          old.fpButton == moonrush::FpButton::LeftStick, "first person defaults");
+
+    // First Person keys.
+    const char* fp = "first_person.enabled=1\nfirst_person.button=dpad_down\nfirst_person.peek=0\n"
+                     "first_person.off_cutscenes=0\nfirst_person.off_2d=1\nfirst_person.off_captures=0\n";
+    auto f = moonrush::parseSettings(fp, std::strlen(fp));
+    CHECK(f.firstPerson && !f.fpPeek && !f.fpOffCutscenes && f.fpOff2D && !f.fpOffCaptures, "fp flags");
+    CHECK(f.fpButton == moonrush::FpButton::DpadDown, "fp button");
+    auto rs = moonrush::parseSettings("first_person.button=rstick\n", 27);
+    CHECK(rs.fpButton == moonrush::FpButton::LeftStick, "right stick is never used (falls back to left)");
 
     // Toggles, curve names, current count, CRLF, junk, and unsafe values.
     const char* custom =
