@@ -417,10 +417,20 @@ namespace {
         updateCappy(keeper ? at<void*>(keeper, off::PlayerHackKeeper_mHackCap) : nullptr, s.cappy, g.mult);
     }
 
+    // Proof per value: the first time the game reads each speed this session, log what it got.
+    bool g_getterLogged[kGetterCount] = {};
+
     template<size_t Slot>
     struct GetterHook : exl::hook::impl::TrampolineHook<GetterHook<Slot>> {
         static float Callback(const void* self) {
-            return scaled(Slot, self, GetterHook::Orig(self));
+            float in = GetterHook::Orig(self);
+            float out = scaled(Slot, self, in);
+            if (!g_getterLogged[Slot] && g.playerConst != nullptr) {
+                g_getterLogged[Slot] = true;
+                MR_LOG("read: %s %.3f -> %.3f (%s)", off::k_getters[Slot].name, in, out,
+                       self == g.playerConst ? "Mario" : "not Mario's PlayerConst");
+            }
+            return out;
         }
     };
 
