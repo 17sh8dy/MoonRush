@@ -249,6 +249,7 @@ function syncSettingsUI() {
   syncCaptures();
   syncFirstPerson();
   syncJump();
+  syncMoonAnim();
 
   const warns = [];
   if (m.start < 0.6) warns.push("Below 0.60× some early gaps and long jumps may be hard or impossible to clear.");
@@ -324,6 +325,17 @@ function syncJump() {
   const w = $("#jump-warn");
   w.hidden = !(j.enabled && j.height > 2.5);
   w.textContent = "Above 2.50× Mario can clear tall walls and skip parts of levels, and long falls take longer.";
+}
+
+function syncMoonAnim() {
+  const a = settings.moon_anim;
+  $("#anim-enabled").checked = a.enabled;
+  $('.page[data-page="anim"]').classList.toggle("off", !a.enabled);
+  $("#anim-speed").value = a.speed;
+  $("#o-anim").textContent = mult(a.speed);
+  $("#anim-hint").textContent = a.speed <= 1
+    ? "1.00× = the normal animation."
+    : `The Moon pickup plays about ${a.speed.toFixed(2)}× as fast (a ${a.speed.toFixed(2)}× shorter wait).`;
 }
 
 function syncFirstPerson() {
@@ -410,6 +422,8 @@ function wire() {
   }
   $("#jump-enabled").onchange = e => { settings.jump.enabled = e.target.checked; syncJump(); };
   $("#jump-height").oninput = e => { settings.jump.height = +e.target.value; syncJump(); };
+  $("#anim-enabled").onchange = e => { settings.moon_anim.enabled = e.target.checked; syncMoonAnim(); };
+  $("#anim-speed").oninput = e => { settings.moon_anim.speed = +e.target.value; syncMoonAnim(); };
   $("#fp-enabled").onchange = e => { settings.first_person.enabled = e.target.checked; syncFirstPerson(); };
   $("#fp-rules").onchange = e => {
     const k = e.target.dataset.fpRule;
@@ -489,5 +503,98 @@ function wire() {
   window.addEventListener("focus", () => { if ($("#settings").hidden) refresh(); });
 }
 
+// ---------------------------------------------------------------- live Moon & Speed panel
+// Polls the running game once a second. The launcher only ASKS for a speed; the game caps it at the speed the
+// Moon count has earned, so the slider's top end is the earned speed and can never be passed.
+
+const fmtX = v => `${Number(v).toFixed(2)}×`;
+let live = { connected: false };
+let liveDragging = false;
+let liveSendTimer = null;
+
+function renderLive(s) {
+  live = s;
+  const card = $("#card-live");
+  const on = !!s.connected;
+  card.classList.toggle("off", !on);
+
+  const pillEl = $("#live-pill");
+  pillEl.textContent = on ? "Game connected" : "Game disconnected";
+  pillEl.className = "pill " + (on ? "ok" : "bad");
+
+  $("#live-moons").textContent = on ? String(s.moons) : "–";
+  $("#live-speed").textContent = on ? fmtX(s.applied) : "–";
+  $("#live-earned").textContent = on ? fmtX(s.earned) : "–";
+
+  // Earned (progression) vs manual are always labelled, never just a number.
+  const mode = $("#live-mode");
+  if (!on) { mode.textContent = ""; mode.className = "pill"; }
+  else if (!s.moon_speed_enabled) { mode.textContent = "Moon Speed off"; mode.className = "pill warn"; }
+  else if (s.manual) { mode.textContent = "Manual"; mode.className = "pill warn"; }
+  else { mode.textContent = "Earned"; mode.className = "pill ok"; }
+
+  const slider = $("#live-slider");
+  const usable = on && s.moon_speed_enabled;
+  slider.disabled = !usable;
+  $("#live-return").disabled = !usable || !s.manual;
+  if (on) {
+    slider.min = String(s.min);
+    slider.max = String(s.earned);
+    $("#live-min").textContent = fmtX(s.min);
+    $("#live-max").textContent = `${fmtX(s.earned)} earned (limit)`;
+    if (!liveDragging) slider.value = String(s.applied);
+    $("#live-value").textContent = fmtX(liveDragging ? slider.value : s.applied);
+  } else {
+    $("#live-min").textContent = "–";
+    $("#live-max").textContent = "–";
+    $("#live-value").textContent = "–";
+  }
+
+  let note;
+  if (!on) note = `Live data is unavailable. ${s.reason || ""}`.trim();
+  else if (!s.moon_speed_enabled) note = "Moon Speed is switched off in the settings, so there is nothing to adjust.";
+  else if (!s.settings_match) note = `Your saved settings now give ${fmtX(s.earned_launcher)} at ${s.moons} Moons, but the running game still uses the settings it started with (${fmtX(s.earned)}). Restart the game to apply them. The game's own limit applies.`;
+  else if (s.manual) note = `Manual speed. The game won't go above the ${fmtX(s.earned)} your ${s.moons} Moons have earned. Return to Earned Speed restores ${fmtX(s.earned)}.`;
+  else note = `Earned speed from your Moons. Drag to slow down, never to go past ${fmtX(s.earned)}. Moon count, save data and settings are never changed here.`;
+  $("#live-note").textContent = note;
+}
+
+async function pollLive() {
+  try { renderLive(await invoke("live_status")); }
+  catch (e) { renderLive({ connected: false, reason: String(e) }); }
+}
+
+function wireLive() {
+  const slider = $("#live-slider");
+  slider.addEventListener("input", () => {
+    liveDragging = true;
+    $("#live-value").textContent = fmtX(slider.value);
+    clearTimeout(liveSendTimer);
+    liveSendTimer = setTimeout(async () => {
+      try { await invoke("live_set_speed", { speed: Number(slider.value) }); }
+      catch (e) { toast(String(e), true); }
+    }, 120);
+  });
+  slider.addEventListener("change", async () => {
+    clearTimeout(liveSendTimer);
+    try {
+      const capped = await invoke("live_set_speed", { speed: Number(slider.value) });
+      slider.value = String(capped);
+    } catch (e) { toast(String(e), true); }
+    liveDragging = false;
+    setTimeout(pollLive, 700);  // give the game a moment to report the new speed
+  });
+  $("#live-return").onclick = e => busy(e.currentTarget, async () => {
+    try {
+      const earned = await invoke("live_return_to_earned");
+      toast(`Back to your earned speed: ${fmtX(earned)}.`);
+    } catch (err) { toast(String(err), true); }
+    setTimeout(pollLive, 700);
+  });
+  pollLive();
+  setInterval(pollLive, 1000);
+}
+
 wire();
+wireLive();
 refresh();

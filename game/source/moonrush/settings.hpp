@@ -45,6 +45,11 @@ namespace moonrush {
         bool jumpEnabled = false;
         float jumpHeight = 1.0f;
 
+        // Moon Animation Speed (v0.6): the ordinary Moon-get demo's own updates are repeated, so it plays
+        // `moonAnimSpeed` times faster. Independent of Moon Speed and Jump Height.
+        bool moonAnimEnabled = false;
+        float moonAnimSpeed = 2.0f;
+
         // First Person: camera in Mario's head, Mario hidden. Camera only, no gameplay change.
         bool firstPerson = false;
         FpButton fpButton = FpButton::LeftStick;  // tap = switch view; hold = peek (if fpPeek)
@@ -64,9 +69,11 @@ namespace moonrush {
     inline constexpr float kStartMin = 0.25f;
     inline constexpr float kStartMax = 2.0f;
     inline constexpr float kPerMoonMax = 0.05f;
-    inline constexpr float kMaxCeiling = 3.0f;
+    inline constexpr float kMaxCeiling = 10.0f;
     inline constexpr float kJumpHeightMin = 1.0f;
-    inline constexpr float kJumpHeightMax = 4.0f;
+    inline constexpr float kJumpHeightMax = 5.0f;
+    inline constexpr float kMoonAnimMin = 1.0f;
+    inline constexpr float kMoonAnimMax = 5.0f;
 
     namespace detail {
         inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -136,6 +143,7 @@ namespace moonrush {
         s.perMoon = clampf(isFinite(s.perMoon) ? s.perMoon : d.perMoon, 0.0f, kPerMoonMax);
         s.max = clampf(isFinite(s.max) ? s.max : d.max, s.start, kMaxCeiling);
         s.jumpHeight = clampf(isFinite(s.jumpHeight) ? s.jumpHeight : d.jumpHeight, kJumpHeightMin, kJumpHeightMax);
+        s.moonAnimSpeed = clampf(isFinite(s.moonAnimSpeed) ? s.moonAnimSpeed : d.moonAnimSpeed, kMoonAnimMin, kMoonAnimMax);
     }
 
     // Parse settings.ini. Unknown keys are ignored; bad values keep their defaults.
@@ -170,6 +178,8 @@ namespace moonrush {
             if (eq(key, kn, "cappy.enabled")) { s.cappy = flag; continue; }
             if (eq(key, kn, "jump.enabled")) { s.jumpEnabled = flag; continue; }
             if (eq(key, kn, "jump.height")) { float jf; if (parseFloat(val, vn, &jf)) s.jumpHeight = jf; continue; }
+            if (eq(key, kn, "moon_anim.enabled")) { s.moonAnimEnabled = flag; continue; }
+            if (eq(key, kn, "moon_anim.speed")) { float mf; if (parseFloat(val, vn, &mf)) s.moonAnimSpeed = mf; continue; }
             if (eq(key, kn, "first_person.enabled")) { s.firstPerson = flag; continue; }
             if (eq(key, kn, "first_person.peek")) { s.fpPeek = flag; continue; }
             if (eq(key, kn, "first_person.off_cutscenes")) { s.fpOffCutscenes = flag; continue; }
@@ -218,6 +228,17 @@ namespace moonrush {
         return r;
     }
 
+    // Moon Animation Speed: how many EXTRA demo updates to run this frame so the demo plays `speed` times faster.
+    // `carry` holds the fraction left over, so 1.5x alternates 0 and 1 extra updates (1.5x on average).
+    inline int moonAnimExtraUpdates(bool enabled, float speed, float* carry) {
+        if (!enabled) { *carry = 0.0f; return 0; }
+        float s = detail::clampf(detail::isFinite(speed) ? speed : 1.0f, kMoonAnimMin, kMoonAnimMax);
+        float acc = *carry + (s - 1.0f);
+        int n = static_cast<int>(acc);
+        *carry = acc - static_cast<float>(n);
+        return n;
+    }
+
     // Speed multiplier for a Moon count. Same formula as MoonSpeed::multiplier in the launcher.
     inline float multiplier(const Settings& s, int moons) {
         float span = s.max - s.start;
@@ -228,6 +249,62 @@ namespace moonrush {
         if (s.curve == Curve::FrontLoaded) shaped = 1.0f - (1.0f - t) * (1.0f - t);
         else if (s.curve == Curve::BackLoaded) shaped = t * t;
         return s.start + span * shaped;
+    }
+
+    // ---- Live speed control (launcher "Moon & Speed" panel) ---------------------------------------------
+    // The launcher may ask the RUNNING game for a manual speed. The game, not the launcher, enforces the limit:
+    // a manual speed can never exceed the speed earned at the current Moon count (curve, start, per Moon, max),
+    // and never goes below kLiveMin. Same rule as live_speed() in the launcher (tests/live_vectors.txt).
+    inline constexpr float kLiveMin = 0.25f;
+
+    // `manual` false => the earned speed. Non-finite requests fall back to the earned speed.
+    inline float liveSpeed(float earned, bool manual, float requested) {
+        if (!manual || !detail::isFinite(requested)) return earned;
+        float lo = kLiveMin < earned ? kLiveMin : earned;
+        return detail::clampf(requested, lo, earned);
+    }
+
+    struct LiveControl {
+        bool found = false;
+        unsigned long long seq = 0;  // launcher-written, strictly increasing; a new value = a new request
+        bool earned = true;          // "speed=earned": return to the earned speed
+        float speed = 0.0f;          // otherwise the requested manual speed
+    };
+
+    // Parses live.ini ("seq=<n>" and "speed=earned|<x>"). Unknown or malformed lines are ignored.
+    inline LiveControl parseLiveControl(const char* text, size_t n) {
+        using namespace detail;
+        LiveControl c;
+        size_t i = 0;
+        while (i < n) {
+            size_t end = i;
+            while (end < n && text[end] != '\n') end++;
+            size_t a = i, b = end;
+            i = end + 1;
+            while (a < b && isSpace(text[a])) a++;
+            while (b > a && isSpace(text[b - 1])) b--;
+            size_t eqPos = a;
+            while (eqPos < b && text[eqPos] != '=') eqPos++;
+            if (eqPos == b) continue;
+            const char* key = text + a;
+            size_t kn = eqPos - a;
+            const char* val = text + eqPos + 1;
+            size_t vn = b - (eqPos + 1);
+            if (eq(key, kn, "seq")) {
+                unsigned long long v = 0;
+                bool digits = vn > 0 && vn < 20;
+                for (size_t k = 0; k < vn && digits; k++) {
+                    if (val[k] < '0' || val[k] > '9') digits = false;
+                    else v = v * 10 + static_cast<unsigned>(val[k] - '0');
+                }
+                if (digits) { c.seq = v; c.found = true; }
+            } else if (eq(key, kn, "speed")) {
+                float f;
+                if (eq(val, vn, "earned")) c.earned = true;
+                else if (parseFloat(val, vn, &f)) { c.earned = false; c.speed = f; }
+            }
+        }
+        return c;
     }
 
 }  // namespace moonrush

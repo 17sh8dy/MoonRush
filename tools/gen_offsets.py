@@ -44,6 +44,27 @@ FUNCS = {
     'al_isPadHoldRight': '_ZN2al14isPadHoldRightEi',
 }
 
+# Moon Animation Speed (v0.6, 2026-10-04). OPTIONAL: if any of these does not match, only that feature turns
+# itself off (see k_anim_signatures); the rest of Moonrush keeps working.
+#   StageSceneStateGetShine = the ordinary Moon-get demo (also the shop and Multi-Moon-less pickups; which other
+#   Moons use it is logged in play). Its nerves: DemoGetFirst -> DemoGet -> DemoShineCount -> DemoEnd(+Wait).
+#   Each of the first three runs the scene's demo update triple once per frame:
+#       al::updateKitListPrev(scene); rs::updateKitListDemoPlayerWithPauseEffect(scene);
+#       al::updateKitListPostDemoWithPauseNormalEffect(scene)          (scene = *(state + 0x18))
+#   and ends when Mario's demo action ends / the count layout finishes. First-step branches (al::isFirstStep)
+#   do the one-shot work (achievement prepo, Shine::get, layout start), so they must never run twice.
+#   DemoEnd resumes normal gameplay updates (rs::updateNormalStateExcludeGraphics), so it is left alone.
+ANIM_FUNCS = {
+    'anim_GetShine_appear': '_ZN23StageSceneStateGetShine6appearEv',
+    'anim_GetShine_exeDemoGetFirst': '_ZN23StageSceneStateGetShine15exeDemoGetFirstEv',
+    'anim_GetShine_exeDemoGet': '_ZN23StageSceneStateGetShine10exeDemoGetEv',
+    'anim_GetShine_exeDemoShineCount': '_ZN23StageSceneStateGetShine17exeDemoShineCountEv',
+    'anim_al_updateKitListPrev': '_ZN2al17updateKitListPrevEPNS_5SceneE',
+    'anim_rs_updateKitListDemoPlayerWithPauseEffect': '_ZN2rs38updateKitListDemoPlayerWithPauseEffectEPN2al5SceneE',
+    'anim_al_updateKitListPostDemoWithPauseNormalEffect': '_ZN2al42updateKitListPostDemoWithPauseNormalEffectEPNS_5SceneE',
+    'anim_al_isFirstStep': '_ZN2al11isFirstStepEPKNS_9IUseNerveE',
+}
+
 syms = s.symbols(); img = s.flat_image()
 
 def field_offset(name):
@@ -148,11 +169,22 @@ for g, names in GROUPS.items():
     for n in names:
         _, go = field_offset(n)
         sigs.append((go, struct.unpack_from('<2I', img, go) + (None, None), 'get' + n, True))
+# Moon Animation Speed offsets + their own (optional) signature table.
+out += ['', '// Moon Animation Speed (optional feature; its own signatures so a mismatch only disables it).',
+        'constexpr size_t GetShine_mScene = 0x18;  // ldr x0, [x19, #24] feeds updateKitListPrev in all three nerves']
+for k, sym in ANIM_FUNCS.items():
+    out.append(f'constexpr uintptr_t {k} = 0x{syms[sym][0]:x};  // {sym}')
 out += ['', 'struct Signature { uintptr_t offset; uint32_t words[4]; uint8_t count; bool hookable; const char* what; };',
         'constexpr Signature k_signatures[] = {']
 for o, words, what, hookable in sigs:
     ws = [w for w in words if w is not None]
     out.append(f'    {{0x{o:x}, {{{", ".join(f"0x{w:08x}" for w in ws)}}}, {len(ws)}, {"true" if hookable else "false"}, "{what}"}},')
+out.append('};')
+out += ['', 'constexpr Signature k_anim_signatures[] = {']
+for k, sym in ANIM_FUNCS.items():
+    o = syms[sym][0]
+    ws = struct.unpack_from('<4I', img, o)
+    out.append(f'    {{0x{o:x}, {{{", ".join(f"0x{w:08x}" for w in ws)}}}, 4, false, "{k}"}},')
 out.append('};')
 out += ['', '}  // namespace moonrush::offsets', '']
 dst = os.path.join(os.path.dirname(__file__), '..', 'game', 'source', 'moonrush', 'offsets.hpp')

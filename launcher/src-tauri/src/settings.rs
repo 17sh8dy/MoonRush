@@ -76,6 +76,21 @@ impl Default for Jump {
     }
 }
 
+/// Moon Animation Speed (v0.6): how many times faster the ordinary Moon-get demo plays. Off by default.
+/// Only the demo's own per-frame updates are repeated; Moon counting, saving and the fanfare logic are untouched.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MoonAnim {
+    pub enabled: bool,
+    pub speed: f32,
+}
+
+impl Default for MoonAnim {
+    fn default() -> Self {
+        MoonAnim { enabled: false, speed: 2.0 }
+    }
+}
+
 /// First Person button. Never the right-stick click: SMO uses it for its own look-around view.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -125,6 +140,9 @@ pub struct Settings {
     /// Missing in settings saved before v0.4.0.
     #[serde(default)]
     pub jump: Jump,
+    /// Missing in settings saved before v0.6.
+    #[serde(default)]
+    pub moon_anim: MoonAnim,
 }
 
 /// Capture names are the game's internal ids ("Kuribo", "TRex"): letters, digits, underscore.
@@ -135,11 +153,13 @@ pub fn is_capture_name(n: &str) -> bool {
 pub const START_MIN: f32 = 0.25;
 pub const START_MAX: f32 = 2.0;
 pub const PER_MOON_MAX: f32 = 0.05;
-/// Hard ceiling. Above this Mario starts passing through thin walls, because collision is checked per frame.
-pub const MAX_CEILING: f32 = 3.0;
+/// Hard ceiling. Raised 5 -> 10 on 2026-10-04 as an OPTION to test; clipping at high speed is UNTESTED above 3x.
+pub const MAX_CEILING: f32 = 10.0;
 pub const JUMP_HEIGHT_MIN: f32 = 1.0;
-/// Above 4x Mario clears most level geometry and skips whole sections.
-pub const JUMP_HEIGHT_MAX: f32 = 4.0;
+/// Above 5x Mario clears most level geometry and skips whole sections.
+pub const JUMP_HEIGHT_MAX: f32 = 5.0;
+pub const MOON_ANIM_MIN: f32 = 1.0;
+pub const MOON_ANIM_MAX: f32 = 5.0;
 
 impl Default for Settings {
     fn default() -> Self {
@@ -164,6 +184,7 @@ impl Default for Settings {
             captures: Captures::default(),
             first_person: FirstPerson::default(),
             jump: Jump::default(),
+            moon_anim: MoonAnim::default(),
         }
     }
 }
@@ -181,12 +202,38 @@ impl Settings {
         m.per_moon = finite_or(m.per_moon, d.per_moon).clamp(0.0, PER_MOON_MAX);
         m.max = finite_or(m.max, d.max).clamp(m.start, MAX_CEILING);
         self.jump.height = finite_or(self.jump.height, 1.0).clamp(JUMP_HEIGHT_MIN, JUMP_HEIGHT_MAX);
+        self.moon_anim.speed = finite_or(self.moon_anim.speed, 2.0).clamp(MOON_ANIM_MIN, MOON_ANIM_MAX);
         let c = &mut self.captures;
         c.off.retain(|n| is_capture_name(n));
         c.off.sort();
         c.off.dedup();
         c.off.truncate(48);
         self
+    }
+}
+
+/// Lowest manual speed the live panel can ask for.
+pub const LIVE_MIN: f32 = 0.25;
+
+/// The live-speed rule: a manual speed never exceeds the speed earned at the current Moon count, and never goes
+/// below `LIVE_MIN`. `None` (or a non-finite request) means the earned speed. The game module enforces the same
+/// rule itself (`moonrush::liveSpeed`); both are checked against tests/live_vectors.txt.
+pub fn live_speed(earned: f32, manual: Option<f32>) -> f32 {
+    match manual {
+        Some(x) if x.is_finite() => x.clamp(LIVE_MIN.min(earned), earned),
+        _ => earned,
+    }
+}
+
+/// Text of live.ini, the request the game polls. `seq` must increase with every request.
+pub fn live_control_text(seq: u64, manual: Option<f32>) -> String {
+    match manual {
+        Some(x) if x.is_finite() => format!("seq={seq}
+speed={x:.4}
+"),
+        _ => format!("seq={seq}
+speed=earned
+"),
     }
 }
 
@@ -252,6 +299,8 @@ pub fn to_ini(s: &Settings) -> String {
          cappy.enabled={}\n\
          jump.enabled={}\n\
          jump.height={:.3}\n\
+         moon_anim.enabled={}\n\
+         moon_anim.speed={:.3}\n\
          first_person.enabled={}\n\
          first_person.button={}\n\
          first_person.peek={}\n\
@@ -264,6 +313,7 @@ pub fn to_ini(s: &Settings) -> String {
         s.captures.off.iter().filter(|n| is_capture_name(n)).cloned().collect::<Vec<_>>().join(","),
         b(s.captures.cappy),
         b(s.jump.enabled), s.jump.height,
+        b(s.moon_anim.enabled), s.moon_anim.speed,
         b(fp.enabled),
         match fp.button {
             FpButton::Lstick => "lstick",
@@ -356,11 +406,33 @@ mod tests {
         s.jump.enabled = true;
         s.jump.height = 9.0;
         let ini = to_ini(&s.clone().sanitized());
-        assert!(ini.contains("jump.enabled=1\n") && ini.contains("jump.height=4.000\n"));
+        assert!(ini.contains("jump.enabled=1\n") && ini.contains("jump.height=5.000\n"));
         s.jump.height = f32::NAN;
         assert!(close(s.clone().sanitized().jump.height, 1.0));
         s.jump.height = 0.2;
         assert!(close(s.sanitized().jump.height, JUMP_HEIGHT_MIN));
+    }
+
+    #[test]
+    fn moon_anim_speed_is_clamped_and_written() {
+        let mut s = Settings::default();
+        assert_eq!(s.moon_anim, MoonAnim { enabled: false, speed: 2.0 });
+        s.moon_anim.enabled = true;
+        s.moon_anim.speed = 9.0;
+        let ini = to_ini(&s.clone().sanitized());
+        assert!(ini.contains("moon_anim.enabled=1\n") && ini.contains("moon_anim.speed=5.000\n"));
+        s.moon_anim.speed = f32::NAN;
+        assert!(close(s.clone().sanitized().moon_anim.speed, 2.0));
+        s.moon_anim.speed = 0.2;
+        assert!(close(s.sanitized().moon_anim.speed, MOON_ANIM_MIN));
+    }
+
+    #[test]
+    fn old_settings_json_without_moon_anim_still_loads() {
+        let old = r#"{"moon_speed":{"enabled":true,"count":"total","start":0.75,"per_moon":0.0025,"max":2.0,
+            "curve":"linear","groups":{"walk":true,"squat":true,"dive":true,"roll":true,"long_jump":true,"air":true,"swim":true}}}"#;
+        let s: Settings = serde_json::from_str(old).unwrap();
+        assert_eq!(s.moon_anim, MoonAnim::default());
     }
 
     #[test]
@@ -382,6 +454,34 @@ mod tests {
                     "first_person.off_cutscenes=1\n", "first_person.off_2d=1\n", "first_person.off_captures=0\n"] {
             assert!(ini.contains(key), "missing {key}");
         }
+    }
+
+    #[test]
+    fn shared_live_vectors() {
+        let text = include_str!("../../../tests/live_vectors.txt");
+        let mut n = 0;
+        for line in text.lines().filter(|l| !l.is_empty() && !l.starts_with('#')) {
+            let f: Vec<&str> = line.split_whitespace().collect();
+            let earned: f32 = f[0].parse().unwrap();
+            let requested: f32 = f[2].parse().unwrap();
+            let want: f32 = f[3].parse().unwrap();
+            let got = live_speed(earned, if f[1] == "manual" { Some(requested) } else { None });
+            assert!(close(got, want), "{line} -> {got}");
+            n += 1;
+        }
+        assert!(n >= 10);
+        assert!(close(live_speed(2.2, Some(f32::NAN)), 2.2));
+        assert!(close(live_speed(2.2, Some(f32::INFINITY)), 2.2));
+    }
+
+    #[test]
+    fn live_control_text_format() {
+        assert_eq!(live_control_text(7, Some(1.5)), "seq=7
+speed=1.5000
+");
+        assert_eq!(live_control_text(8, None), "seq=8
+speed=earned
+");
     }
 
     #[test]

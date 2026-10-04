@@ -32,6 +32,31 @@
         </button>
       </section>
 
+      <section class="card live" id="card-live" aria-labelledby="live-title">
+        <header>
+          <div>
+            <span class="eyebrow">Moonrush &middot; live status</span>
+            <h3 id="live-title">Moon &amp; Speed</h3>
+          </div>
+          <span class="pill" id="live-pill">Game disconnected</span>
+        </header>
+        <div class="live-stats">
+          <div><span class="muted">Moons collected</span><strong id="live-moons">&ndash;</strong></div>
+          <div>
+            <span class="muted">Current speed <span class="pill" id="live-mode"></span></span>
+            <strong id="live-speed">&ndash;</strong>
+          </div>
+          <div><span class="muted">Earned speed</span><strong id="live-earned">&ndash;</strong></div>
+        </div>
+        <div class="live-set">
+          <div class="live-row"><label for="live-slider">Set speed</label><output id="live-value">&ndash;</output></div>
+          <input type="range" id="live-slider" min="0.25" max="1" step="any" disabled>
+          <div class="live-row small muted"><span id="live-min">&ndash;</span><span id="live-max">&ndash;</span></div>
+        </div>
+        <p class="muted small" id="live-note">Live data is unavailable.</p>
+        <button class="btn primary live-return" id="live-return" disabled>Return to Earned Speed</button>
+      </section>
+
       <section class="grid">
         <article class="card" id="card-game">
           <header><h3>Game</h3><span class="pill" data-pill></span></header>
@@ -92,6 +117,7 @@
         <button class="nav on" data-page="speed">Moon Speed</button>
         <button class="nav" data-page="actions">Actions</button>
         <button class="nav" data-page="jump">Jump</button>
+        <button class="nav" data-page="anim">Moon Animation</button>
         <button class="nav" data-page="captures">Captures</button>
         <button class="nav" data-page="fp">First Person</button>
       </nav>
@@ -127,11 +153,11 @@
             </div>
             <div class="slider">
               <label for="ms-per">Gained per Moon <output id="o-per"></output></label>
-              <input type="range" id="ms-per" min="0" max="0.02" step="0.0005">
+              <input type="range" id="ms-per" min="0" max="0.05" step="0.0005">
             </div>
             <div class="slider">
               <label for="ms-max">Maximum speed <output id="o-max"></output></label>
-              <input type="range" id="ms-max" min="0.25" max="3" step="0.05">
+              <input type="range" id="ms-max" min="0.25" max="10" step="0.05">
             </div>
           </div>
 
@@ -168,12 +194,30 @@
           <div class="sliders">
             <div class="slider">
               <label for="jump-height">Jump height <output id="o-jump"></output></label>
-              <input type="range" id="jump-height" min="1" max="4" step="0.05">
+              <input type="range" id="jump-height" min="1" max="5" step="0.05">
               <p class="hint" id="jump-hint"></p>
             </div>
           </div>
           <p class="hint warn" id="jump-warn" hidden></p>
-          <p class="hint">Capped at 4.00×. Never changed: gravity, fall speed, long-jump arc, enemy and Moon-bounce heights.</p>
+          <p class="hint">Capped at 5.00×. Never changed: gravity, fall speed, long-jump arc, enemy and Moon-bounce heights.</p>
+        </section>
+
+        <section class="page" data-page="anim" hidden>
+          <div class="page-head">
+            <div>
+              <h3>Moon Animation Speed</h3>
+              <p class="muted">Plays the Power Moon pickup animation faster: Mario's pose, the Moon and the Moon counter. Moon counting, rewards, saving, the fanfare and the sequence of events are still the game's own, and nothing in gameplay or movement changes.</p>
+            </div>
+            <label class="switch big"><input type="checkbox" id="anim-enabled"><span></span><em>On</em></label>
+          </div>
+          <div class="sliders">
+            <div class="slider">
+              <label for="anim-speed">Animation speed <output id="o-anim"></output></label>
+              <input type="range" id="anim-speed" min="1" max="5" step="0.25">
+              <p class="hint" id="anim-hint"></p>
+            </div>
+          </div>
+          <p class="hint">Off = the normal Moon animation. Works with the SMO Randomizer; this setting is Moonrush's own and does not copy the Randomizer's "Fast Moon Demos". Applies to the ordinary Moon pickup. Story Moons, the Grand/Multi Moon sequences and other cutscenes are not changed. Which Moons use the ordinary pickup is recorded in the Ryujinx log (&ldquo;moon animation:&rdquo; lines) as you collect them.</p>
         </section>
 
         <section class="page" data-page="captures" hidden>

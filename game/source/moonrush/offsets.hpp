@@ -156,6 +156,17 @@ constexpr Getter k_getters[] = {
     {7, "JumpPowerMax2DArea", 0xdc, 0x43d024},  // jump
 };
 
+// Moon Animation Speed (optional feature; its own signatures so a mismatch only disables it).
+constexpr size_t GetShine_mScene = 0x18;  // ldr x0, [x19, #24] feeds updateKitListPrev in all three nerves
+constexpr uintptr_t anim_GetShine_appear = 0x4dbb50;  // _ZN23StageSceneStateGetShine6appearEv
+constexpr uintptr_t anim_GetShine_exeDemoGetFirst = 0x4dbd7c;  // _ZN23StageSceneStateGetShine15exeDemoGetFirstEv
+constexpr uintptr_t anim_GetShine_exeDemoGet = 0x4dbfcc;  // _ZN23StageSceneStateGetShine10exeDemoGetEv
+constexpr uintptr_t anim_GetShine_exeDemoShineCount = 0x4dc5bc;  // _ZN23StageSceneStateGetShine17exeDemoShineCountEv
+constexpr uintptr_t anim_al_updateKitListPrev = 0x9d0ba8;  // _ZN2al17updateKitListPrevEPNS_5SceneE
+constexpr uintptr_t anim_rs_updateKitListDemoPlayerWithPauseEffect = 0x4d22d8;  // _ZN2rs38updateKitListDemoPlayerWithPauseEffectEPN2al5SceneE
+constexpr uintptr_t anim_al_updateKitListPostDemoWithPauseNormalEffect = 0x9d0c10;  // _ZN2al42updateKitListPostDemoWithPauseNormalEffectEPNS_5SceneE
+constexpr uintptr_t anim_al_isFirstStep = 0x959cc8;  // _ZN2al11isFirstStepEPKNS_9IUseNerveE
+
 struct Signature { uintptr_t offset; uint32_t words[4]; uint8_t count; bool hookable; const char* what; };
 constexpr Signature k_signatures[] = {
     {0x41dd34, {0xd105c3ff, 0x6d0d3bef, 0x6d0e33ed, 0x6d0f2beb}, 4, false, "PlayerActorHakoniwa_movement"},
@@ -211,6 +222,17 @@ constexpr Signature k_signatures[] = {
     {0x43d74c, {0xbd447000, 0xd65f03c0}, 2, true, "getWallJumpPower"},
     {0x43d01c, {0xbd40d800, 0xd65f03c0}, 2, true, "getJumpPowerMin2DArea"},
     {0x43d024, {0xbd40dc00, 0xd65f03c0}, 2, true, "getJumpPowerMax2DArea"},
+};
+
+constexpr Signature k_anim_signatures[] = {
+    {0x4dbb50, {0xf81d0ff5, 0xa9014ff4, 0xa9027bfd, 0x910083fd}, 4, false, "anim_GetShine_appear"},
+    {0x4dbd7c, {0xd10303ff, 0xa90957f6, 0xa90a4ff4, 0xa90b7bfd}, 4, false, "anim_GetShine_exeDemoGetFirst"},
+    {0x4dbfcc, {0xd103c3ff, 0xa90a67fa, 0xa90b5ff8, 0xa90c57f6}, 4, false, "anim_GetShine_exeDemoGet"},
+    {0x4dc5bc, {0xf81d0ff5, 0xa9014ff4, 0xa9027bfd, 0x910083fd}, 4, false, "anim_GetShine_exeDemoShineCount"},
+    {0x9d0ba8, {0xf81e0ff3, 0xa9017bfd, 0x910043fd, 0xaa0003f3}, 4, false, "anim_al_updateKitListPrev"},
+    {0x4d22d8, {0x320003e1, 0x2a1f03e2, 0x17ffff84, 0x320003e1}, 4, false, "anim_rs_updateKitListDemoPlayerWithPauseEffect"},
+    {0x9d0c10, {0xa9be4ff4, 0xa9017bfd, 0x910043fd, 0xaa0003f3}, 4, false, "anim_al_updateKitListPostDemoWithPauseNormalEffect"},
+    {0x959cc8, {0xa9bf7bfd, 0x910003fd, 0xf9400008, 0xf9400108}, 4, false, "anim_al_isFirstStep"},
 };
 
 }  // namespace moonrush::offsets

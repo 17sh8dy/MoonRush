@@ -253,3 +253,19 @@ input[type="range"] { width: 100%; accent-color: var(--accent-strong); cursor: p
   .side h2 { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---------- live Moon & Speed ---------- */
+.live { margin-bottom: 14px; }
+.live > header { align-items: flex-start; }
+.live .eyebrow { display: block; margin-bottom: 2px; }
+.live-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.live-stats > div { display: flex; flex-direction: column; gap: 4px; }
+.live-stats strong { font-size: 26px; font-weight: 650; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.live-stats .pill { margin-left: 6px; vertical-align: 1px; }
+.live-set { margin-top: 14px; }
+.live-row { display: flex; justify-content: space-between; align-items: baseline; }
+.live-row output { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.live-set input[type="range"] { margin: 8px 0 4px; }
+.live-set input[type="range"]:disabled { opacity: .4; cursor: not-allowed; }
+.live-return { width: 100%; margin-top: 12px; padding: 11px 14px; }
+.live.off .live-stats strong, .live.off .live-row output { color: var(--faint); }

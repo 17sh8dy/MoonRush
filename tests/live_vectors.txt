@@ -1,0 +1,14 @@
+# earned mode requested expected   (the live-speed rule: a manual speed is capped at the earned speed, floor 0.25x)
+# Checked by the launcher (live_speed) and the game module (liveSpeed).
+2.20 manual 3.00 2.20
+2.20 manual 2.20 2.20
+2.20 manual 1.50 1.50
+2.20 manual 0.10 0.25
+2.20 earned 1.50 2.20
+2.20 earned 3.00 2.20
+0.75 manual 0.50 0.50
+0.75 manual 0.10 0.25
+0.75 manual 1.00 0.75
+0.20 manual 1.00 0.20
+10.00 manual 7.50 7.50
+10.00 manual 12.00 10.00

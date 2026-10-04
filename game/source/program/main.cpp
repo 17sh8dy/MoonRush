@@ -23,6 +23,7 @@
 //
 // All offsets come from tools/gen_offsets.py (SMO 1.0.0 only) and are checked at startup.
 
+#include <cstdio>
 #include <utility>
 
 #include "lib.hpp"
@@ -40,6 +41,13 @@ namespace {
 
     constexpr const char* kMount = "moonrush";
     constexpr const char* kSettingsPath = "moonrush:/Moonrush/settings.ini";
+    // Live channel with the launcher's "Moon & Speed" panel: the launcher writes live.ini (a request), the game
+    // writes status.ini (a fixed 256-byte file, because nn::fs cannot shrink a file) twice a second.
+    constexpr const char* kLivePath = "moonrush:/Moonrush/live.ini";
+    constexpr const char* kStatusPath = "moonrush:/Moonrush/status.ini";
+    constexpr long kStatusSize = 256;
+    constexpr int kLivePollFrames = 10;
+    constexpr int kStatusFrames = 30;
     constexpr size_t kGetterCount = sizeof(off::k_getters) / sizeof(off::k_getters[0]);
     constexpr size_t kCappyCount = sizeof(off::k_cappy) / sizeof(off::k_cappy[0]);
     constexpr uint32_t kRet = 0xd65f03c0;
@@ -71,7 +79,18 @@ namespace {
         const void* playerConst = nullptr;  // the playable Mario's PlayerConst (others stay vanilla)
         const void* lastPc = nullptr;       // for spotting a new scene
         float mult = 1.0f;
+        float earned = 1.0f;                // the speed the Moon count has earned (before any manual choice)
+        bool manual = false;                // the launcher asked for a manual speed (capped at `earned`)
+        float manualReq = 0.0f;
+        unsigned long long liveSeq = 0;     // last live.ini request applied; the one present at boot is ignored
+        bool liveSeen = false;
+        bool statusMade = false;
+        unsigned beat = 0;
+        int frame = 0;
         float jumpFactor = 1.0f;            // launch-power factor for Jump Height (1.0 = vanilla)
+        bool animOk = false;                // the Moon Animation Speed hooks matched the 1.0.0 code and are installed
+        float animCarry = 0.0f;             // fractional extra updates carried between frames (e.g. 1.5x)
+        int animFrames = 0;                 // sped-up frames in the current demo, for the log
         int lastMoons = -1;
         float lastMult = -1;
 
@@ -170,9 +189,112 @@ namespace {
                s.cappy ? "on" : "off");
         MR_LOG("settings: jump=%s height=%.2fx (launch power x%.3f, gravity untouched)", s.jumpEnabled ? "on" : "off",
                s.jumpHeight, mr::jumpLaunchFactor(s));
+        MR_LOG("settings: moon_anim=%s speed=%.2fx", s.moonAnimEnabled ? "on" : "off", s.moonAnimSpeed);
         MR_LOG("settings: first_person=%s button=%d peek=%d off_cutscenes=%d off_2d=%d off_captures=%d",
                s.firstPerson ? "on" : "off", static_cast<int>(s.fpButton), s.fpPeek, s.fpOffCutscenes, s.fpOff2D,
                s.fpOffCaptures);
+    }
+
+    // ------------------------------------------------------------------ Live control (launcher panel)
+
+    // A request is applied only when its seq is newer than the last one seen, and the seq already in the file at
+    // boot is never applied, so a manual speed from a previous session cannot come back by itself.
+    void pollLiveControl() {
+        nn::fs::FileHandle file {};
+        if (nn::fs::OpenFile(&file, kLivePath, nn::fs::OpenMode_Read) != 0) {
+            g.liveSeen = true;
+            return;
+        }
+        long size = 0;
+        nn::fs::GetFileSize(&size, file);
+        char buf[256];
+        size_t n = size < 0 ? 0 : (static_cast<size_t>(size) < sizeof(buf) ? static_cast<size_t>(size) : sizeof(buf));
+        Result r = nn::fs::ReadFile(file, 0, buf, n);
+        nn::fs::CloseFile(file);
+        if (r != 0) return;
+        const mr::LiveControl c = mr::parseLiveControl(buf, n);
+        if (!c.found) return;
+        if (!g.liveSeen) {
+            g.liveSeen = true;
+            g.liveSeq = c.seq;
+            return;
+        }
+        if (c.seq <= g.liveSeq) return;
+        g.liveSeq = c.seq;
+        g.manual = !c.earned;
+        g.manualReq = c.speed;
+        if (g.manual)
+            MR_LOG("live: manual speed requested %.3fx (earned %.3fx; the game caps it at the earned speed)", c.speed, g.earned);
+        else
+            MR_LOG("live: return to earned speed %.3fx", g.earned);
+    }
+
+    void writeLiveStatus(int moons) {
+        if (!g.statusMade) {
+            g.statusMade = true;
+            nn::fs::CreateFile(kStatusPath, kStatusSize);  // fails harmlessly if it already exists
+        }
+        char buf[kStatusSize];
+        const float applied = g.mult;
+        int len = std::snprintf(buf, sizeof(buf),
+                                "v=1\nbeat=%u\nmoons=%d\nearned=%.4f\napplied=%.4f\nmode=%s\nmin=%.4f\nmax=%.4f\nenabled=%d\n",
+                                ++g.beat, moons, g.earned, applied,
+                                (g.settings.enabled && g.manual) ? "manual" : "earned", mr::kLiveMin, g.settings.max,
+                                g.settings.enabled ? 1 : 0);
+        if (len < 0 || len >= kStatusSize) return;
+        for (int i = len; i < kStatusSize; i++) buf[i] = ' ';
+        buf[kStatusSize - 1] = '\n';
+        nn::fs::FileHandle file {};
+        if (nn::fs::OpenFile(&file, kStatusPath, nn::fs::OpenMode_Write) != 0) return;
+        nn::fs::WriteFile(file, 0, buf, kStatusSize, nn::fs::WriteOption::CreateOption(nn::fs::WriteOptionFlag_Flush));
+        nn::fs::CloseFile(file);
+    }
+
+    // ------------------------------------------------------------------ Moon Animation Speed
+    //
+    // The ordinary Moon-get demo (StageSceneStateGetShine) plays inside three nerves (DemoGetFirst, DemoGet,
+    // DemoShineCount). Each frame they run the scene's demo update triple once (Mario's demo animation, the Moon,
+    // the count layout, effects) and then check whether the demo is over. To play it N times faster, the triple is
+    // run N-1 extra times just before the nerve's own code. Never on the first step of a nerve: that is where the
+    // one-shot work lives (Shine::get, achievement prepo, starting the layout), and it must run exactly once.
+    // The End nerve is left alone because it resumes normal gameplay updates. Moon counting, the save data,
+    // the fanfare/sound triggers and every state transition stay the game's own.
+
+    using SceneUpdateFn = void (*)(void* scene);
+    using IsFirstStepFn = bool (*)(const void* nerveUser);
+
+    bool animSignaturesMatch() {
+        const uintptr_t main = exl::util::modules::GetTargetStart();
+        for (const auto& sig : off::k_anim_signatures) {
+            const auto* code = reinterpret_cast<const uint32_t*>(main + sig.offset);
+            for (int i = 0; i < sig.count; i++) {
+                if (code[i] != sig.words[i]) {
+                    MR_LOG("moon animation: inactive. %s at main+0x%lx is 0x%08x, expected 0x%08x (another mod changed it?)",
+                           sig.what, static_cast<unsigned long>(sig.offset), code[i], sig.words[i]);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // Run before the nerve's own code, with `self` = the StageSceneStateGetShine.
+    void speedUpMoonDemo(void* self, const char* nerve) {
+        const auto& s = g.settings;
+        if (!g.animOk || !s.moonAnimEnabled) return;
+        if (gameFn<IsFirstStepFn>(off::anim_al_isFirstStep)(self)) {
+            g.animCarry = 0.0f;
+            return;
+        }
+        void* scene = at<void*>(self, off::GetShine_mScene);
+        if (scene == nullptr) return;
+        const int extra = mr::moonAnimExtraUpdates(true, s.moonAnimSpeed, &g.animCarry);
+        for (int i = 0; i < extra; i++) {
+            gameFn<SceneUpdateFn>(off::anim_al_updateKitListPrev)(scene);
+            gameFn<SceneUpdateFn>(off::anim_rs_updateKitListDemoPlayerWithPauseEffect)(scene);
+            gameFn<SceneUpdateFn>(off::anim_al_updateKitListPostDemoWithPauseNormalEffect)(scene);
+        }
+        if (g.animFrames++ == 0) MR_LOG("moon animation: x%.2f active (%s, +%d update(s) this frame)", s.moonAnimSpeed, nerve, extra);
     }
 
     // ------------------------------------------------------------------ First Person
@@ -403,7 +525,11 @@ namespace {
 
         bool newScene = pc != g.lastPc;
         g.lastPc = pc;
-        g.mult = mr::multiplier(s, moons);
+        g.earned = mr::multiplier(s, moons);
+        if (++g.frame % kLivePollFrames == 0 && s.enabled) pollLiveControl();
+        // A manual speed (launcher request) is capped at the earned speed right here, every frame.
+        g.mult = mr::liveSpeed(g.earned, s.enabled && g.manual, g.manualReq);
+        if (g.frame % kStatusFrames == 0) writeLiveStatus(moons);
         g.playerConst = (s.enabled || s.jumpEnabled) ? pc : nullptr;
         g.jumpFactor = mr::jumpLaunchFactor(s);
 
@@ -469,6 +595,38 @@ HOOK_DEFINE_TRAMPOLINE(PlayerColliderCollide) {
     }
 };
 
+// Moon Animation Speed: the ordinary Moon-get demo's three timed nerves, and its entry (for the log only).
+HOOK_DEFINE_TRAMPOLINE(MoonDemoAppear) {
+    static void Callback(void* self) {
+        g.animFrames = 0;
+        g.animCarry = 0.0f;
+        MR_LOG("moon animation: ordinary Moon-get demo started (speed-up %s)",
+               g.animOk && g.settings.moonAnimEnabled ? "on" : "off");
+        Orig(self);
+    }
+};
+
+HOOK_DEFINE_TRAMPOLINE(MoonDemoGetFirst) {
+    static void Callback(void* self) {
+        speedUpMoonDemo(self, "DemoGetFirst");
+        Orig(self);
+    }
+};
+
+HOOK_DEFINE_TRAMPOLINE(MoonDemoGet) {
+    static void Callback(void* self) {
+        speedUpMoonDemo(self, "DemoGet");
+        Orig(self);
+    }
+};
+
+HOOK_DEFINE_TRAMPOLINE(MoonDemoShineCount) {
+    static void Callback(void* self) {
+        speedUpMoonDemo(self, "DemoShineCount");
+        Orig(self);
+    }
+};
+
 HOOK_DEFINE_TRAMPOLINE(PlayerMovement) {
     static void Callback(void* player) {
         updateMoonSpeed(player);
@@ -511,6 +669,14 @@ extern "C" void exl_main(void* x0, void* x1) {
     PlayerColliderCollide::InstallAtOffset(off::PlayerCollider_collide);
     CameraExeActive::InstallAtOffset(off::CameraPoseUpdater_exeActive);
     ModelSyncShowHide::InstallAtOffset(off::PlayerModelChangerHakoniwa_syncShowHide);
+    // Optional feature: its own signature check, so a mismatch only turns Moon Animation Speed off.
+    g.animOk = animSignaturesMatch();
+    if (g.animOk) {
+        MoonDemoAppear::InstallAtOffset(off::anim_GetShine_appear);
+        MoonDemoGetFirst::InstallAtOffset(off::anim_GetShine_exeDemoGetFirst);
+        MoonDemoGet::InstallAtOffset(off::anim_GetShine_exeDemoGet);
+        MoonDemoShineCount::InstallAtOffset(off::anim_GetShine_exeDemoShineCount);
+    }
     MR_LOG("loaded v0.4.0 for SMO 1.0.0 (%s); hooks installed: Moon Speed + Jump Height (%d getters), Captures, Cappy, First Person",
            off::kBuildId, static_cast<int>(kGetterCount));
 }

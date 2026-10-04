@@ -1,3 +1,4 @@
+mod live;
 mod ryujinx;
 mod settings;
 
@@ -409,6 +410,10 @@ fn launch(settings: Settings) -> Result<String, String> {
     let game = ryujinx::find_game(&data, prefs().game_path.as_deref());
     let path = game.path.ok_or("Couldn't find Super Mario Odyssey. Set the game file in Setup.")?;
     save_settings(settings)?;
+    // A fresh game must start at its earned speed: drop any request/status left by the last session.
+    let live = live_dir(&data);
+    let _ = fs::remove_file(live.join("live.ini"));
+    let _ = fs::remove_file(live.join("status.ini"));
     let mut cmd = Command::new(&exe);
     cmd.arg(&path);
     if let Some(dir) = exe.parent() {
@@ -416,6 +421,114 @@ fn launch(settings: Settings) -> Result<String, String> {
     }
     cmd.spawn().map_err(|e| format!("Couldn't start Ryujinx: {e}"))?;
     Ok(format!("Started {}", exe.display()))
+}
+
+// ---------------------------------------------------------------- live Moon & Speed panel
+
+const LIVE_FRESH_SECS: f32 = 3.0;
+
+fn live_dir(data: &Path) -> PathBuf {
+    ryujinx::settings_ini(data).parent().map(Path::to_path_buf).unwrap_or_default()
+}
+
+/// Read the running game's status. Never errors: "not connected" is a normal answer.
+#[tauri::command]
+fn live_status() -> live::LiveStatus {
+    let off = |why: &str| live::LiveStatus { reason: why.into(), ..Default::default() };
+    let Ok((_exe, data)) = current_data() else { return off("Ryujinx not found") };
+    let path = live_dir(&data).join("status.ini");
+    // A status file the game touched in the last few seconds proves it is running, so the (slow)
+    // process check only runs to explain why there is no live data.
+    let age = fs::metadata(&path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|m| m.elapsed().ok())
+        .map(|d| d.as_secs_f32());
+    match age {
+        Some(a) if a <= LIVE_FRESH_SECS => {}
+        _ if !ryujinx_running() => return off("Ryujinx isn't running"),
+        None => return off("Waiting for the game: no live data yet"),
+        Some(_) => return off("No live data: the game is closed, paused or loading"),
+    }
+    let Some(g) = fs::read_to_string(&path).ok().as_deref().and_then(live::parse_status) else {
+        return off("Waiting for the game: live data unreadable");
+    };
+    let from_settings = get_settings().moon_speed.multiplier(g.moons);
+    live::LiveStatus {
+        connected: true,
+        reason: String::new(),
+        moons: g.moons,
+        earned: g.earned,
+        earned_launcher: from_settings,
+        settings_match: (from_settings - g.earned).abs() < 0.002,
+        applied: g.applied,
+        manual: g.manual,
+        min: g.min.min(g.earned),
+        max: g.max,
+        moon_speed_enabled: g.enabled,
+    }
+}
+
+/// Strictly increasing request number, so the game can tell a new request from the one it already applied.
+fn next_live_seq() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(1);
+    let mut prev = LAST.load(Ordering::SeqCst);
+    loop {
+        let next = now.max(prev + 1);
+        match LAST.compare_exchange(prev, next, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(_) => return next,
+            Err(p) => prev = p,
+        }
+    }
+}
+
+fn write_live_request(manual: Option<f32>) -> Result<(), String> {
+    let (_exe, data) = current_data()?;
+    let dir = live_dir(&data);
+    fs::create_dir_all(&dir).map_err(|e| format!("Couldn't create {}: {e}", dir.display()))?;
+    let text = settings::live_control_text(next_live_seq(), manual);
+    let target = dir.join("live.ini");
+    let tmp = dir.join("live.ini.tmp");
+    // Write a temp file and rename it over live.ini so the game never reads half a request;
+    // fall back to writing in place if the rename is refused.
+    if fs::write(&tmp, &text).and_then(|_| fs::rename(&tmp, &target)).is_err() {
+        let _ = fs::remove_file(&tmp);
+        fs::write(&target, &text).map_err(|e| format!("Couldn't write {}: {e}", target.display()))?;
+    }
+    Ok(())
+}
+
+/// Ask the running game for a manual speed. It is capped at the earned speed by the game itself; the value
+/// sent is already capped here too, so what the panel shows matches what the game will apply.
+#[tauri::command]
+fn live_set_speed(speed: f32) -> Result<f32, String> {
+    let st = live_status();
+    if !st.connected {
+        return Err("The game isn't connected, so there is nothing to adjust.".into());
+    }
+    if !st.moon_speed_enabled {
+        return Err("Moon Speed is switched off in the settings.".into());
+    }
+    let capped = settings::live_speed(st.earned, Some(speed));
+    write_live_request(Some(capped))?;
+    Ok(capped)
+}
+
+/// Drop any manual speed: recompute the earned speed (Rust formula, current Moon count, saved curve/start/gain/max)
+/// and tell the game to apply the earned speed now. Moon count, save data and settings are not touched.
+#[tauri::command]
+fn live_return_to_earned() -> Result<f32, String> {
+    let st = live_status();
+    if !st.connected {
+        return Err("The game isn't connected, so there is nothing to restore.".into());
+    }
+    write_live_request(None)?;
+    Ok(settings::live_speed(get_settings().moon_speed.multiplier(st.moons), None))
 }
 
 #[tauri::command]
@@ -441,6 +554,9 @@ pub fn run() {
             uninstall_mod,
             set_mod_enabled,
             launch,
+            live_status,
+            live_set_speed,
+            live_return_to_earned,
             open_folder
         ])
         .run(tauri::generate_context!())

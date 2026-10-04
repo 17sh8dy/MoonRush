@@ -117,3 +117,20 @@ Not touched: jump height, gravity, fall speed, Cappy, captures, enemies, anythin
   connected, so "not connected" still means these 14 speeds are the randomizer's. Proof from the real game log:
   `moons=65 mult=2.325 NormalMaxSpeed stored=14.000 effective=4.650` (= 2.0 x 2.325).
   Needs Brandon's decision: keep stacking, or have Moonrush use the vanilla value when the randomizer is loaded.
+
+## Moon Animation Speed (v0.6, 2026-10-04) - BUILT, NOT PLAYED
+Own feature, independent of the Randomizer's "Fast Moon Demos" (whose mechanism was never found). Verified in the real 1.0.0 code
+(tools/annotate.py prints any function with its callees named):
+- Ordinary Moon-get = `StageSceneStateGetShine` (also the shop's Moons: `setShopShine10`). Nerves: DemoGetFirst -> DemoGet ->
+  DemoShineCount -> DemoEnd (+EndWaitScreenFader / EndAndWait). The first three each run, once per frame, the scene's demo update triple
+  `al::updateKitListPrev(scene)`, `rs::updateKitListDemoPlayerWithPauseEffect(scene)`, `al::updateKitListPostDemoWithPauseNormalEffect(scene)`
+  (scene = `*(state + 0x18)`) and then test whether Mario's demo action / the count layout finished. One-shot work (Shine::get, achievement
+  prepo, startShineCountAnim, hit reactions) is under `al::isFirstStep`. DemoEnd calls `rs::updateNormalStateExcludeGraphics` (gameplay
+  resumes) so it is NOT touched.
+- Mechanism: hook those three exe functions; unless it is the first step, run the triple N-1 extra times before Orig (fractional speeds
+  carry). Nothing else changes: counting, saving, fanfare triggers, transitions are the game's own. Range 1.00-5.00x, default off, 2.00x.
+- Optional signatures (`k_anim_signatures`): a mismatch (another mod patched those functions) turns ONLY this feature off.
+- NOT covered: `StageSceneStateGetShineMain` (story Moons), `...Grand` (Grand/Multi?), `...MainSandWorld`. Which state a Multi Moon uses is
+  unknown; the log line `moon animation: ordinary Moon-get demo started` shows when the ordinary state runs.
+- UNVERIFIED in game: that audio/fanfare timing feels right at 2-4x, that the camera behaves, Multi/special Moons. Log lines: `settings: moon_anim=`,
+  `moon animation: x2.00 active (DemoGet, +1 update(s)...)`.
