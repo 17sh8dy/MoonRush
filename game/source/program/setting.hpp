@@ -16,7 +16,7 @@ namespace exl::setting {
     constexpr size_t HeapSize = 0x5000;
 
     /* How large the JIT area will be for hooks. */
-    constexpr size_t JitSize = 0x2000;  /* Moonrush: 26 trampoline hooks (0x1000 fits only 20). */
+    constexpr size_t JitSize = 0x3000;  /* Moonrush: 38 trampoline hooks (0x1000 fits only 20). */
 
     /* How large the area will be inline hook pool. */
     constexpr size_t InlinePoolSize = 0x1000;

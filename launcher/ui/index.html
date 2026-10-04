@@ -91,6 +91,7 @@
         <h2 id="settings-title">Before you play</h2>
         <button class="nav on" data-page="speed">Moon Speed</button>
         <button class="nav" data-page="actions">Actions</button>
+        <button class="nav" data-page="jump">Jump</button>
         <button class="nav" data-page="captures">Captures</button>
         <button class="nav" data-page="fp">First Person</button>
       </nav>
@@ -153,7 +154,26 @@
             </div>
           </div>
           <div class="toggles" id="groups"></div>
-          <p class="hint">Never changed: jump height, gravity, fall speed, enemies. Captures and Cappy have their own page.</p>
+          <p class="hint">Never changed: gravity, fall speed, enemies. Jump height has its own page; Captures and Cappy have theirs.</p>
+        </section>
+
+        <section class="page" data-page="jump" hidden>
+          <div class="page-head">
+            <div>
+              <h3>Jump Height</h3>
+              <p class="muted">How many times higher Mario jumps. Gravity stays exactly vanilla: only the launch power changes, so the jump rises higher and takes a little longer. Applies to jump, double and triple jump, backflip, side flip, wall jump and jumps in 2D sections. It is not tied to Moons.</p>
+            </div>
+            <label class="switch big"><input type="checkbox" id="jump-enabled"><span></span><em>On</em></label>
+          </div>
+          <div class="sliders">
+            <div class="slider">
+              <label for="jump-height">Jump height <output id="o-jump"></output></label>
+              <input type="range" id="jump-height" min="1" max="4" step="0.05">
+              <p class="hint" id="jump-hint"></p>
+            </div>
+          </div>
+          <p class="hint warn" id="jump-warn" hidden></p>
+          <p class="hint">Capped at 4.00×. Never changed: gravity, fall speed, long-jump arc, enemy and Moon-bounce heights.</p>
         </section>
 
         <section class="page" data-page="captures" hidden>

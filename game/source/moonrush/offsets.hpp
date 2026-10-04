@@ -34,6 +34,7 @@ constexpr size_t PlayerActorHakoniwa_mConst = 0x130;
 constexpr size_t LiveActor_IUseSceneObjHolder = 0x20;
 constexpr int SceneObjId_GameDataHolder = 18;
 constexpr size_t PlayerConst_size = 0x9a8;
+constexpr int kJumpGroup = 7;  // group index of the Jump Height getters (not a Moon Speed group)
 constexpr size_t PlayerActorHakoniwa_mHackKeeper = 0x208;
 constexpr size_t PlayerHackKeeper_mHackCap = 0x8;
 constexpr size_t PlayerHackKeeper_mHackActor = 0x68;
@@ -104,6 +105,19 @@ constexpr Field k_swim[] = {
     {"SwimFloorSpeedMaxH", 0x668, 0x43db3c},
     {"SwimWalkMaxSpeed", 0x694, 0x43db94},
 };
+constexpr Field k_jump[] = {
+    {"JumpPowerMin", 0x2f0, 0x43d44c},
+    {"JumpPowerMax", 0x2f4, 0x43d454},
+    {"JumpPowerMax2nd", 0x39c, 0x43d5a4},
+    {"JumpPowerMax3rd", 0x3a4, 0x43d5b4},
+    {"ContinuousJumpPowerMin", 0x398, 0x43d59c},
+    {"SquatJumpPower", 0x3e8, 0x43d63c},
+    {"SquatJumpBackPower", 0x3ec, 0x43d644},
+    {"TurnJumpPower", 0x400, 0x43d66c},
+    {"WallJumpPower", 0x470, 0x43d74c},
+    {"JumpPowerMin2DArea", 0xd8, 0x43d01c},
+    {"JumpPowerMax2DArea", 0xdc, 0x43d024},
+};
 
 struct Getter { int group; const char* name; uint16_t field; uintptr_t offset; };
 constexpr Getter k_getters[] = {
@@ -129,6 +143,17 @@ constexpr Getter k_getters[] = {
     {6, "SwimLowSpeedMaxH", 0x678, 0x43db5c},  // swim
     {6, "SwimFloorSpeedMaxH", 0x668, 0x43db3c},  // swim
     {6, "SwimWalkMaxSpeed", 0x694, 0x43db94},  // swim
+    {7, "JumpPowerMin", 0x2f0, 0x43d44c},  // jump
+    {7, "JumpPowerMax", 0x2f4, 0x43d454},  // jump
+    {7, "JumpPowerMax2nd", 0x39c, 0x43d5a4},  // jump
+    {7, "JumpPowerMax3rd", 0x3a4, 0x43d5b4},  // jump
+    {7, "ContinuousJumpPowerMin", 0x398, 0x43d59c},  // jump
+    {7, "SquatJumpPower", 0x3e8, 0x43d63c},  // jump
+    {7, "SquatJumpBackPower", 0x3ec, 0x43d644},  // jump
+    {7, "TurnJumpPower", 0x400, 0x43d66c},  // jump
+    {7, "WallJumpPower", 0x470, 0x43d74c},  // jump
+    {7, "JumpPowerMin2DArea", 0xd8, 0x43d01c},  // jump
+    {7, "JumpPowerMax2DArea", 0xdc, 0x43d024},  // jump
 };
 
 struct Signature { uintptr_t offset; uint32_t words[4]; uint8_t count; bool hookable; const char* what; };
@@ -175,6 +200,17 @@ constexpr Signature k_signatures[] = {
     {0x43db5c, {0xbd467800, 0xd65f03c0}, 2, true, "getSwimLowSpeedMaxH"},
     {0x43db3c, {0xbd466800, 0xd65f03c0}, 2, true, "getSwimFloorSpeedMaxH"},
     {0x43db94, {0xbd469400, 0xd65f03c0}, 2, true, "getSwimWalkMaxSpeed"},
+    {0x43d44c, {0xbd42f000, 0xd65f03c0}, 2, true, "getJumpPowerMin"},
+    {0x43d454, {0xbd42f400, 0xd65f03c0}, 2, true, "getJumpPowerMax"},
+    {0x43d5a4, {0xbd439c00, 0xd65f03c0}, 2, true, "getJumpPowerMax2nd"},
+    {0x43d5b4, {0xbd43a400, 0xd65f03c0}, 2, true, "getJumpPowerMax3rd"},
+    {0x43d59c, {0xbd439800, 0xd65f03c0}, 2, true, "getContinuousJumpPowerMin"},
+    {0x43d63c, {0xbd43e800, 0xd65f03c0}, 2, true, "getSquatJumpPower"},
+    {0x43d644, {0xbd43ec00, 0xd65f03c0}, 2, true, "getSquatJumpBackPower"},
+    {0x43d66c, {0xbd440000, 0xd65f03c0}, 2, true, "getTurnJumpPower"},
+    {0x43d74c, {0xbd447000, 0xd65f03c0}, 2, true, "getWallJumpPower"},
+    {0x43d01c, {0xbd40d800, 0xd65f03c0}, 2, true, "getJumpPowerMin2DArea"},
+    {0x43d024, {0xbd40dc00, 0xd65f03c0}, 2, true, "getJumpPowerMax2DArea"},
 };
 
 }  // namespace moonrush::offsets

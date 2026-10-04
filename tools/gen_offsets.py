@@ -13,6 +13,11 @@ GROUPS = {
     'long_jump': ['LongJumpInitSpeed', 'LongJumpSpeed', 'LongJumpSpeedMin'],
     'air': ['JumpBaseSpeedMax', 'JumpMoveSpeedMin', 'JumpMoveSpeedMax'],
     'swim': ['SwimSurfaceSpeedMaxH', 'SwimHighSpeedMaxH', 'SwimLowSpeedMaxH', 'SwimFloorSpeedMaxH', 'SwimWalkMaxSpeed'],
+    # v0.4.0 Jump Height: launch power only. Gravity getters (JumpGravity, GravityAir, ...) are NEVER hooked.
+    # MUST stay last: index 7 = off::kJumpGroup, which is not one of the Moon Speed groups.
+    'jump': ['JumpPowerMin', 'JumpPowerMax', 'JumpPowerMax2nd', 'JumpPowerMax3rd', 'ContinuousJumpPowerMin',
+             'SquatJumpPower', 'SquatJumpBackPower', 'TurnJumpPower', 'WallJumpPower',
+             'JumpPowerMin2DArea', 'JumpPowerMax2DArea'],
 }
 FUNCS = {
     'PlayerActorHakoniwa_movement': '_ZN19PlayerActorHakoniwa8movementEv',
@@ -84,6 +89,7 @@ out += ['', '// Object layout (verified in disassembly).',
         'constexpr size_t LiveActor_IUseSceneObjHolder = 0x20;',
         'constexpr int SceneObjId_GameDataHolder = 18;',
         'constexpr size_t PlayerConst_size = 0x9a8;',
+        'constexpr int kJumpGroup = 7;  // group index of the Jump Height getters (not a Moon Speed group)',
         'constexpr size_t PlayerActorHakoniwa_mHackKeeper = 0x208;',
         'constexpr size_t PlayerHackKeeper_mHackCap = 0x8;',
         'constexpr size_t PlayerHackKeeper_mHackActor = 0x68;',

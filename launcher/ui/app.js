@@ -10,7 +10,7 @@ const GROUPS = [
   ["dive", "Dive", "Dive (head slide) speed."],
   ["roll", "Roll", "Roll start, boost and top speed."],
   ["long_jump", "Long jump", "Long jump launch and travel speed."],
-  ["air", "Air speed", "Sideways speed during jumps. Jump height is unchanged."],
+  ["air", "Air speed", "Sideways speed during jumps. Jump height has its own page."],
   ["swim", "Swim", "Surface, underwater and seafloor-walk speeds."],
 ];
 
@@ -248,6 +248,7 @@ function syncSettingsUI() {
   for (const [key] of GROUPS) $(`#g-${key}`).checked = m.groups[key];
   syncCaptures();
   syncFirstPerson();
+  syncJump();
 
   const warns = [];
   if (m.start < 0.6) warns.push("Below 0.60× some early gaps and long jumps may be hard or impossible to clear.");
@@ -308,6 +309,21 @@ function syncCaptures() {
       <span><span class="t-title">${label}</span><p class="t-desc">${esc(how)}</p></span>
     </label>`;
   }).join("");
+}
+
+function syncJump() {
+  const j = settings.jump;
+  $("#jump-enabled").checked = j.enabled;
+  $('.page[data-page="jump"]').classList.toggle("off", !j.enabled);
+  $("#jump-height").value = j.height;
+  $("#o-jump").textContent = mult(j.height);
+  const launch = Math.sqrt(j.height);
+  $("#jump-hint").textContent = j.height <= 1
+    ? "1.00× = vanilla jumps."
+    : `Mario jumps ${j.height.toFixed(2)}× as high (launch speed ×${launch.toFixed(2)}, gravity unchanged).`;
+  const w = $("#jump-warn");
+  w.hidden = !(j.enabled && j.height > 2.5);
+  w.textContent = "Above 2.50× Mario can clear tall walls and skip parts of levels, and long falls take longer.";
 }
 
 function syncFirstPerson() {
@@ -392,6 +408,8 @@ function wire() {
       syncSettingsUI();
     };
   }
+  $("#jump-enabled").onchange = e => { settings.jump.enabled = e.target.checked; syncJump(); };
+  $("#jump-height").oninput = e => { settings.jump.height = +e.target.value; syncJump(); };
   $("#fp-enabled").onchange = e => { settings.first_person.enabled = e.target.checked; syncFirstPerson(); };
   $("#fp-rules").onchange = e => {
     const k = e.target.dataset.fpRule;

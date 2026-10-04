@@ -71,6 +71,7 @@ namespace {
         const void* playerConst = nullptr;  // the playable Mario's PlayerConst (others stay vanilla)
         const void* lastPc = nullptr;       // for spotting a new scene
         float mult = 1.0f;
+        float jumpFactor = 1.0f;            // launch-power factor for Jump Height (1.0 = vanilla)
         int lastMoons = -1;
         float lastMult = -1;
 
@@ -167,6 +168,8 @@ namespace {
                s.groups[5], s.groups[6]);
         MR_LOG("settings: captures=%s (%d switched off) cappy=%s", s.captures ? "on" : "off", s.capturesOffCount,
                s.cappy ? "on" : "off");
+        MR_LOG("settings: jump=%s height=%.2fx (launch power x%.3f, gravity untouched)", s.jumpEnabled ? "on" : "off",
+               s.jumpHeight, mr::jumpLaunchFactor(s));
         MR_LOG("settings: first_person=%s button=%d peek=%d off_cutscenes=%d off_2d=%d off_captures=%d",
                s.firstPerson ? "on" : "off", static_cast<int>(s.fpButton), s.fpPeek, s.fpOffCutscenes, s.fpOff2D,
                s.fpOffCaptures);
@@ -292,7 +295,9 @@ namespace {
 
     float scaled(size_t slot, const void* self, float value) {
         if (self == nullptr || self != g.playerConst) return value;
-        if (!g.settings.groups[off::k_getters[slot].group]) return value;
+        const int group = off::k_getters[slot].group;
+        if (group == off::kJumpGroup) return value * g.jumpFactor;
+        if (!g.settings.enabled || !g.settings.groups[group]) return value;
         return value * g.mult;
     }
 
@@ -377,7 +382,7 @@ namespace {
     void updateMoonSpeed(void* player) {
         if (!g.settingsLoaded) loadSettings();
         const auto& s = g.settings;
-        if (!s.enabled && !s.captures && !s.cappy) {
+        if (!s.enabled && !s.captures && !s.cappy && !s.jumpEnabled) {
             g.playerConst = nullptr;
             g.hackTrans = nullptr;
             return;
@@ -399,7 +404,8 @@ namespace {
         bool newScene = pc != g.lastPc;
         g.lastPc = pc;
         g.mult = mr::multiplier(s, moons);
-        g.playerConst = s.enabled ? pc : nullptr;
+        g.playerConst = (s.enabled || s.jumpEnabled) ? pc : nullptr;
+        g.jumpFactor = mr::jumpLaunchFactor(s);
 
         if (newScene || moons != g.lastMoons || g.mult != g.lastMult) {
             g.lastMoons = moons;
@@ -505,7 +511,7 @@ extern "C" void exl_main(void* x0, void* x1) {
     PlayerColliderCollide::InstallAtOffset(off::PlayerCollider_collide);
     CameraExeActive::InstallAtOffset(off::CameraPoseUpdater_exeActive);
     ModelSyncShowHide::InstallAtOffset(off::PlayerModelChangerHakoniwa_syncShowHide);
-    MR_LOG("loaded v0.3.0 for SMO 1.0.0 (%s); hooks installed: Moon Speed (%d getters), Captures, Cappy, First Person",
+    MR_LOG("loaded v0.4.0 for SMO 1.0.0 (%s); hooks installed: Moon Speed + Jump Height (%d getters), Captures, Cappy, First Person",
            off::kBuildId, static_cast<int>(kGetterCount));
 }
 

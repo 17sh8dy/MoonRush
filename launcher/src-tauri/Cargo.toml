@@ -1,6 +1,6 @@
 [package]
 name = "moonrush-launcher"
-version = "0.1.0"
+version = "0.4.0"
 edition = "2021"
 description = "Moonrush launcher for Super Mario Odyssey on Ryujinx"
 

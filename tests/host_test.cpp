@@ -70,6 +70,21 @@ int main(int argc, char** argv) {
     auto rs = moonrush::parseSettings("first_person.button=rstick\n", 27);
     CHECK(rs.fpButton == moonrush::FpButton::LeftStick, "right stick is never used (falls back to left)");
 
+    // Jump Height: default off at 1x; clamped to 1..4x; launch factor = sqrt(height) (gravity is never touched).
+    CHECK(!s.jumpEnabled && std::fabs(s.jumpHeight - 1.0f) < 1e-6f && std::fabs(moonrush::jumpLaunchFactor(s) - 1.0f) < 1e-6f, "jump default");
+    const char* jmp = "jump.enabled=1\njump.height=4\n";
+    auto j = moonrush::parseSettings(jmp, std::strlen(jmp));
+    CHECK(j.jumpEnabled && std::fabs(moonrush::jumpLaunchFactor(j) - 2.0f) < 1e-4f, "4x height = 2x launch (%f)", moonrush::jumpLaunchFactor(j));
+    const char* jmp2 = "jump.enabled=1\njump.height=2.5\n";
+    auto j2 = moonrush::parseSettings(jmp2, std::strlen(jmp2));
+    CHECK(std::fabs(moonrush::jumpLaunchFactor(j2) - std::sqrt(2.5f)) < 1e-4f, "2.5x (%f)", moonrush::jumpLaunchFactor(j2));
+    const char* jmp3 = "jump.enabled=1\njump.height=99\n";
+    auto j3 = moonrush::parseSettings(jmp3, std::strlen(jmp3));
+    CHECK(std::fabs(j3.jumpHeight - 4.0f) < 1e-6f, "height clamped to 4x (%f)", j3.jumpHeight);
+    const char* jmp4 = "jump.enabled=0\njump.height=3\n";
+    auto j4 = moonrush::parseSettings(jmp4, std::strlen(jmp4));
+    CHECK(std::fabs(moonrush::jumpLaunchFactor(j4) - 1.0f) < 1e-6f, "disabled = vanilla");
+
     // Toggles, curve names, current count, CRLF, junk, and unsafe values.
     const char* custom =
         "; comment\r\n"

@@ -40,6 +40,11 @@ namespace moonrush {
         // Cappy: throw speed and reach follow the multiplier. Off unless turned on.
         bool cappy = false;
 
+        // Jump Height (v0.4.0): `jumpHeight` is how many times higher Mario jumps. Only the launch power is
+        // changed (by sqrt(height)); gravity is never touched, so the arc keeps vanilla gravity.
+        bool jumpEnabled = false;
+        float jumpHeight = 1.0f;
+
         // First Person: camera in Mario's head, Mario hidden. Camera only, no gameplay change.
         bool firstPerson = false;
         FpButton fpButton = FpButton::LeftStick;  // tap = switch view; hold = peek (if fpPeek)
@@ -60,6 +65,8 @@ namespace moonrush {
     inline constexpr float kStartMax = 2.0f;
     inline constexpr float kPerMoonMax = 0.05f;
     inline constexpr float kMaxCeiling = 3.0f;
+    inline constexpr float kJumpHeightMin = 1.0f;
+    inline constexpr float kJumpHeightMax = 4.0f;
 
     namespace detail {
         inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -128,6 +135,7 @@ namespace moonrush {
         s.start = clampf(isFinite(s.start) ? s.start : d.start, kStartMin, kStartMax);
         s.perMoon = clampf(isFinite(s.perMoon) ? s.perMoon : d.perMoon, 0.0f, kPerMoonMax);
         s.max = clampf(isFinite(s.max) ? s.max : d.max, s.start, kMaxCeiling);
+        s.jumpHeight = clampf(isFinite(s.jumpHeight) ? s.jumpHeight : d.jumpHeight, kJumpHeightMin, kJumpHeightMax);
     }
 
     // Parse settings.ini. Unknown keys are ignored; bad values keep their defaults.
@@ -160,6 +168,8 @@ namespace moonrush {
             if (eq(key, kn, "captures.enabled")) { s.captures = flag; continue; }
             if (eq(key, kn, "captures.off")) { parseNameList(s, val, vn); continue; }
             if (eq(key, kn, "cappy.enabled")) { s.cappy = flag; continue; }
+            if (eq(key, kn, "jump.enabled")) { s.jumpEnabled = flag; continue; }
+            if (eq(key, kn, "jump.height")) { float jf; if (parseFloat(val, vn, &jf)) s.jumpHeight = jf; continue; }
             if (eq(key, kn, "first_person.enabled")) { s.firstPerson = flag; continue; }
             if (eq(key, kn, "first_person.peek")) { s.fpPeek = flag; continue; }
             if (eq(key, kn, "first_person.off_cutscenes")) { s.fpOffCutscenes = flag; continue; }
@@ -197,6 +207,15 @@ namespace moonrush {
         }
         sanitize(s);
         return s;
+    }
+
+    // Launch-power factor that gives `height` times the jump height at unchanged gravity (apex = v^2 / 2g).
+    inline float jumpLaunchFactor(const Settings& s) {
+        if (!s.jumpEnabled) return 1.0f;
+        float x = detail::clampf(s.jumpHeight, kJumpHeightMin, kJumpHeightMax);
+        float r = x;  // Newton's sqrt without <cmath> (keeps this header dependency-free)
+        for (int i = 0; i < 12; i++) r = 0.5f * (r + x / r);
+        return r;
     }
 
     // Speed multiplier for a Moon count. Same formula as MoonSpeed::multiplier in the launcher.

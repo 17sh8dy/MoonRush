@@ -62,6 +62,20 @@ impl Default for Captures {
     }
 }
 
+/// Jump Height: how many times higher Mario jumps. Only launch power changes (by sqrt of this), so gravity is vanilla.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Jump {
+    pub enabled: bool,
+    pub height: f32,
+}
+
+impl Default for Jump {
+    fn default() -> Self {
+        Jump { enabled: false, height: 1.0 }
+    }
+}
+
 /// First Person button. Never the right-stick click: SMO uses it for its own look-around view.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -108,6 +122,9 @@ pub struct Settings {
     pub captures: Captures,
     #[serde(default)]
     pub first_person: FirstPerson,
+    /// Missing in settings saved before v0.4.0.
+    #[serde(default)]
+    pub jump: Jump,
 }
 
 /// Capture names are the game's internal ids ("Kuribo", "TRex"): letters, digits, underscore.
@@ -120,6 +137,9 @@ pub const START_MAX: f32 = 2.0;
 pub const PER_MOON_MAX: f32 = 0.05;
 /// Hard ceiling. Above this Mario starts passing through thin walls, because collision is checked per frame.
 pub const MAX_CEILING: f32 = 3.0;
+pub const JUMP_HEIGHT_MIN: f32 = 1.0;
+/// Above 4x Mario clears most level geometry and skips whole sections.
+pub const JUMP_HEIGHT_MAX: f32 = 4.0;
 
 impl Default for Settings {
     fn default() -> Self {
@@ -143,6 +163,7 @@ impl Default for Settings {
             },
             captures: Captures::default(),
             first_person: FirstPerson::default(),
+            jump: Jump::default(),
         }
     }
 }
@@ -159,6 +180,7 @@ impl Settings {
         m.start = finite_or(m.start, d.start).clamp(START_MIN, START_MAX);
         m.per_moon = finite_or(m.per_moon, d.per_moon).clamp(0.0, PER_MOON_MAX);
         m.max = finite_or(m.max, d.max).clamp(m.start, MAX_CEILING);
+        self.jump.height = finite_or(self.jump.height, 1.0).clamp(JUMP_HEIGHT_MIN, JUMP_HEIGHT_MAX);
         let c = &mut self.captures;
         c.off.retain(|n| is_capture_name(n));
         c.off.sort();
@@ -228,6 +250,8 @@ pub fn to_ini(s: &Settings) -> String {
          captures.enabled={}\n\
          captures.off={}\n\
          cappy.enabled={}\n\
+         jump.enabled={}\n\
+         jump.height={:.3}\n\
          first_person.enabled={}\n\
          first_person.button={}\n\
          first_person.peek={}\n\
@@ -239,6 +263,7 @@ pub fn to_ini(s: &Settings) -> String {
         b(s.captures.enabled),
         s.captures.off.iter().filter(|n| is_capture_name(n)).cloned().collect::<Vec<_>>().join(","),
         b(s.captures.cappy),
+        b(s.jump.enabled), s.jump.height,
         b(fp.enabled),
         match fp.button {
             FpButton::Lstick => "lstick",
@@ -322,6 +347,28 @@ mod tests {
         let s: Settings = serde_json::from_str(old).unwrap();
         assert_eq!(s.captures, Captures::default());
         assert_eq!(s.first_person, FirstPerson::default());
+    }
+
+    #[test]
+    fn jump_height_is_clamped_and_written() {
+        let mut s = Settings::default();
+        assert_eq!(s.jump, Jump { enabled: false, height: 1.0 });
+        s.jump.enabled = true;
+        s.jump.height = 9.0;
+        let ini = to_ini(&s.clone().sanitized());
+        assert!(ini.contains("jump.enabled=1\n") && ini.contains("jump.height=4.000\n"));
+        s.jump.height = f32::NAN;
+        assert!(close(s.clone().sanitized().jump.height, 1.0));
+        s.jump.height = 0.2;
+        assert!(close(s.sanitized().jump.height, JUMP_HEIGHT_MIN));
+    }
+
+    #[test]
+    fn old_settings_json_without_jump_still_loads() {
+        let old = r#"{"moon_speed":{"enabled":true,"count":"total","start":0.75,"per_moon":0.0025,"max":2.0,
+            "curve":"linear","groups":{"walk":true,"squat":true,"dive":true,"roll":true,"long_jump":true,"air":true,"swim":true}}}"#;
+        let s: Settings = serde_json::from_str(old).unwrap();
+        assert_eq!(s.jump, Jump::default());
     }
 
     #[test]
