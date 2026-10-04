@@ -88,6 +88,11 @@ namespace {
         unsigned beat = 0;
         int frame = 0;
         float jumpFactor = 1.0f;            // launch-power factor for Jump Height (1.0 = vanilla)
+        float jumpEarned = 1.0f;            // jump height the Moon count has earned (1x = vanilla)
+        float jumpApplied = 1.0f;           // jump height actually in use (earned, or a manual one capped at earned)
+        bool jumpManual = false;            // the launcher asked for a manual jump height
+        float jumpReq = 0.0f;
+        float lastJumpApplied = -1.0f;      // for the log: only when the applied jump height changes
         bool animOk = false;                // the Moon Animation Speed hooks matched the 1.0.0 code and are installed
         float animCarry = 0.0f;             // fractional extra updates carried between frames (e.g. 1.5x)
         int animFrames = 0;                 // sped-up frames in the current demo, for the log
@@ -187,8 +192,8 @@ namespace {
                s.groups[5], s.groups[6]);
         MR_LOG("settings: captures=%s (%d switched off) cappy=%s", s.captures ? "on" : "off", s.capturesOffCount,
                s.cappy ? "on" : "off");
-        MR_LOG("settings: jump=%s height=%.2fx (launch power x%.3f, gravity untouched)", s.jumpEnabled ? "on" : "off",
-               s.jumpHeight, mr::jumpLaunchFactor(s));
+        MR_LOG("settings: jump=%s height=%.2fx scale_with_moons=%d (launch power x%.3f at full, gravity untouched)", s.jumpEnabled ? "on" : "off",
+               s.jumpHeight, s.jumpScale ? 1 : 0, mr::jumpLaunchFactor(s));
         MR_LOG("settings: moon_anim=%s speed=%.2fx", s.moonAnimEnabled ? "on" : "off", s.moonAnimSpeed);
         MR_LOG("settings: first_person=%s button=%d peek=%d off_cutscenes=%d off_2d=%d off_captures=%d",
                s.firstPerson ? "on" : "off", static_cast<int>(s.fpButton), s.fpPeek, s.fpOffCutscenes, s.fpOff2D,
@@ -221,12 +226,22 @@ namespace {
         }
         if (c.seq <= g.liveSeq) return;
         g.liveSeq = c.seq;
-        g.manual = !c.earned;
-        g.manualReq = c.speed;
-        if (g.manual)
-            MR_LOG("live: manual speed requested %.3fx (earned %.3fx; the game caps it at the earned speed)", c.speed, g.earned);
-        else
-            MR_LOG("live: return to earned speed %.3fx", g.earned);
+        if (c.speedFound) {
+            g.manual = !c.earned;
+            g.manualReq = c.speed;
+            if (g.manual)
+                MR_LOG("live: manual speed requested %.3fx (earned %.3fx; the game caps it at the earned speed)", c.speed, g.earned);
+            else
+                MR_LOG("live: return to earned speed %.3fx", g.earned);
+        }
+        if (c.jumpFound) {
+            g.jumpManual = !c.jumpEarned;
+            g.jumpReq = c.jump;
+            if (g.jumpManual)
+                MR_LOG("live: manual jump height requested %.3fx (earned %.3fx; the game caps it at the earned jump)", c.jump, g.jumpEarned);
+            else
+                MR_LOG("live: return to earned jump height %.3fx", g.jumpEarned);
+        }
     }
 
     void writeLiveStatus(int moons) {
@@ -237,10 +252,11 @@ namespace {
         char buf[kStatusSize];
         const float applied = g.mult;
         int len = std::snprintf(buf, sizeof(buf),
-                                "v=1\nbeat=%u\nmoons=%d\nearned=%.4f\napplied=%.4f\nmode=%s\nmin=%.4f\nmax=%.4f\nenabled=%d\n",
+                                "v=1\nbeat=%u\nmoons=%d\nearned=%.4f\napplied=%.4f\nmode=%s\nmin=%.4f\nmax=%.4f\nenabled=%d\njenabled=%d\njearned=%.4f\njapplied=%.4f\njmode=%s\njmax=%.4f\n",
                                 ++g.beat, moons, g.earned, applied,
                                 (g.settings.enabled && g.manual) ? "manual" : "earned", mr::kLiveMin, g.settings.max,
-                                g.settings.enabled ? 1 : 0);
+                                g.settings.enabled ? 1 : 0, g.settings.jumpEnabled ? 1 : 0, g.jumpEarned, g.jumpApplied,
+                                (g.settings.jumpEnabled && g.jumpManual) ? "manual" : "earned", g.settings.jumpHeight);
         if (len < 0 || len >= kStatusSize) return;
         for (int i = len; i < kStatusSize; i++) buf[i] = ' ';
         buf[kStatusSize - 1] = '\n';
@@ -526,12 +542,21 @@ namespace {
         bool newScene = pc != g.lastPc;
         g.lastPc = pc;
         g.earned = mr::multiplier(s, moons);
-        if (++g.frame % kLivePollFrames == 0 && s.enabled) pollLiveControl();
+        if (++g.frame % kLivePollFrames == 0 && (s.enabled || s.jumpEnabled)) pollLiveControl();
         // A manual speed (launcher request) is capped at the earned speed right here, every frame.
         g.mult = mr::liveSpeed(g.earned, s.enabled && g.manual, g.manualReq);
         if (g.frame % kStatusFrames == 0) writeLiveStatus(moons);
         g.playerConst = (s.enabled || s.jumpEnabled) ? pc : nullptr;
-        g.jumpFactor = mr::jumpLaunchFactor(s);
+        // Jump Height is earned like speed (1x at 0 Moons -> the setting at full progress), and a manual height from
+        // the launcher is capped at the earned one here, every frame.
+        g.jumpEarned = mr::earnedJump(s, moons);
+        g.jumpApplied = mr::liveJump(g.jumpEarned, s.jumpEnabled && g.jumpManual, g.jumpReq);
+        g.jumpFactor = s.jumpEnabled ? mr::jumpLaunchFactorFor(g.jumpApplied) : 1.0f;
+        if (s.jumpEnabled && g.jumpApplied != g.lastJumpApplied) {
+            g.lastJumpApplied = g.jumpApplied;
+            MR_LOG("jump: earned %.3fx applied %.3fx (%s, launch power x%.3f)", g.jumpEarned, g.jumpApplied,
+                   g.jumpManual ? "manual" : "earned", g.jumpFactor);
+        }
 
         if (newScene || moons != g.lastMoons || g.mult != g.lastMult) {
             g.lastMoons = moons;

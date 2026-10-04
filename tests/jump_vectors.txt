@@ -1,0 +1,21 @@
+# Earned jump height and the live-jump cap. Checked by the launcher (settings.rs) and the game module (settings.hpp).
+# earned <start> <per_moon> <max> <curve> <moons> <jump_height_setting> <scale_with_moons 0|1> <expected>
+#   earned jump = 1 + (jump_height - 1) * progress, where progress is the SAME curve value Moon Speed uses.
+earned 2.0 0.05 10.0 linear 0 4.0 1 1.0
+earned 2.0 0.05 10.0 linear 80 4.0 1 2.5
+earned 2.0 0.05 10.0 linear 160 4.0 1 4.0
+earned 2.0 0.05 10.0 linear 400 4.0 1 4.0
+earned 2.0 0.05 10.0 linear 80 4.0 0 4.0
+earned 2.0 0.05 10.0 front 80 4.0 1 3.25
+earned 2.0 0.05 10.0 back 80 4.0 1 1.75
+earned 0.75 0.0025 2.0 linear 250 10.0 1 5.5
+earned 2.0 0.0 10.0 linear 50 4.0 1 1.0
+earned 1.0 0.01 1.0 linear 400 4.0 1 1.0
+earned 2.0 0.05 10.0 linear -5 4.0 1 1.0
+# live <earned_jump> <manual|earned> <requested> <expected>   (manual jump is capped at the earned jump, floor 1.0)
+live 2.5 manual 4.0 2.5
+live 2.5 manual 1.7 1.7
+live 2.5 manual 0.2 1.0
+live 2.5 earned 1.7 2.5
+live 1.0 manual 3.0 1.0
+live 10.0 manual 12.0 10.0

@@ -253,7 +253,7 @@ function syncSettingsUI() {
 
   const warns = [];
   if (m.start < 0.6) warns.push("Below 0.60× some early gaps and long jumps may be hard or impossible to clear.");
-  if (m.max > 2.5) warns.push("Above 2.50× Mario can pass through thin walls, because collision is checked once per frame.");
+  if (m.max > 5) warns.push("Above 5.00× Mario can pass through thin walls, because collision is checked once per frame.");
   const w = $("#speed-warn");
   w.hidden = !warns.length;
   w.textContent = warns.join(" ");
@@ -317,14 +317,17 @@ function syncJump() {
   $("#jump-enabled").checked = j.enabled;
   $('.page[data-page="jump"]').classList.toggle("off", !j.enabled);
   $("#jump-height").value = j.height;
+  $("#jump-scale").checked = j.scale;
   $("#o-jump").textContent = mult(j.height);
   const launch = Math.sqrt(j.height);
   $("#jump-hint").textContent = j.height <= 1
     ? "1.00× = vanilla jumps."
-    : `Mario jumps ${j.height.toFixed(2)}× as high (launch speed ×${launch.toFixed(2)}, gravity unchanged).`;
+    : j.scale
+      ? `Earned like speed: 1.00× at 0 Moons, rising to ${j.height.toFixed(2)}× at full progress (launch speed ×${launch.toFixed(2)} there, gravity unchanged).`
+      : `Mario jumps ${j.height.toFixed(2)}× as high from the start (launch speed ×${launch.toFixed(2)}, gravity unchanged).`;
   const w = $("#jump-warn");
-  w.hidden = !(j.enabled && j.height > 2.5);
-  w.textContent = "Above 2.50× Mario can clear tall walls and skip parts of levels, and long falls take longer.";
+  w.hidden = !(j.enabled && j.height > 5);
+  w.textContent = "Above 5.00× Mario can clear tall walls and skip parts of levels, and long falls take longer.";
 }
 
 function syncMoonAnim() {
@@ -421,6 +424,7 @@ function wire() {
     };
   }
   $("#jump-enabled").onchange = e => { settings.jump.enabled = e.target.checked; syncJump(); };
+  $("#jump-scale").onchange = e => { settings.jump.scale = e.target.checked; syncJump(); };
   $("#jump-height").oninput = e => { settings.jump.height = +e.target.value; syncJump(); };
   $("#anim-enabled").onchange = e => { settings.moon_anim.enabled = e.target.checked; syncMoonAnim(); };
   $("#anim-speed").oninput = e => { settings.moon_anim.speed = +e.target.value; syncMoonAnim(); };
@@ -511,6 +515,8 @@ const fmtX = v => `${Number(v).toFixed(2)}×`;
 let live = { connected: false };
 let liveDragging = false;
 let liveSendTimer = null;
+let liveJDragging = false;
+let liveJSendTimer = null;
 
 function renderLive(s) {
   live = s;
@@ -550,6 +556,29 @@ function renderLive(s) {
     $("#live-value").textContent = "–";
   }
 
+  // Jump Height (earned like speed; the game caps a manual height at the earned one).
+  const jOn = on && s.j_enabled;
+  const jMode = $("#live-jmode");
+  const jSlider = $("#live-jslider");
+  jSlider.disabled = !jOn;
+  $("#live-jreturn").disabled = !jOn || !s.j_manual;
+  if (!jOn) {
+    jMode.textContent = on ? "Jump Height off" : "";
+    jMode.className = "pill" + (on ? " warn" : "");
+    $("#live-jmin").textContent = "–";
+    $("#live-jmax").textContent = "–";
+    $("#live-jvalue").textContent = "–";
+  } else {
+    jMode.textContent = s.j_manual ? "Manual" : "Earned";
+    jMode.className = "pill " + (s.j_manual ? "warn" : "ok");
+    jSlider.min = String(s.j_min);
+    jSlider.max = String(Math.max(s.j_earned, s.j_min + 0.0001));
+    $("#live-jmin").textContent = fmtX(s.j_min);
+    $("#live-jmax").textContent = `${fmtX(s.j_earned)} earned (limit)`;
+    if (!liveJDragging) jSlider.value = String(s.j_applied);
+    $("#live-jvalue").textContent = fmtX(liveJDragging ? jSlider.value : s.j_applied);
+  }
+
   let note;
   if (!on) note = `Live data is unavailable. ${s.reason || ""}`.trim();
   else if (!s.moon_speed_enabled) note = "Moon Speed is switched off in the settings, so there is nothing to adjust.";
@@ -583,6 +612,32 @@ function wireLive() {
     } catch (e) { toast(String(e), true); }
     liveDragging = false;
     setTimeout(pollLive, 700);  // give the game a moment to report the new speed
+  });
+  const jslider = $("#live-jslider");
+  jslider.addEventListener("input", () => {
+    liveJDragging = true;
+    $("#live-jvalue").textContent = fmtX(jslider.value);
+    clearTimeout(liveJSendTimer);
+    liveJSendTimer = setTimeout(async () => {
+      try { await invoke("live_set_jump", { height: Number(jslider.value) }); }
+      catch (e) { toast(String(e), true); }
+    }, 120);
+  });
+  jslider.addEventListener("change", async () => {
+    clearTimeout(liveJSendTimer);
+    try {
+      const capped = await invoke("live_set_jump", { height: Number(jslider.value) });
+      jslider.value = String(capped);
+    } catch (e) { toast(String(e), true); }
+    liveJDragging = false;
+    setTimeout(pollLive, 700);
+  });
+  $("#live-jreturn").onclick = e => busy(e.currentTarget, async () => {
+    try {
+      const earned = await invoke("live_return_jump");
+      toast(`Back to your earned jump height: ${fmtX(earned)}.`);
+    } catch (err) { toast(String(err), true); }
+    setTimeout(pollLive, 700);
   });
   $("#live-return").onclick = e => busy(e.currentTarget, async () => {
     try {

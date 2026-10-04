@@ -53,6 +53,15 @@
           <input type="range" id="live-slider" min="0.25" max="1" step="any" disabled>
           <div class="live-row small muted"><span id="live-min">&ndash;</span><span id="live-max">&ndash;</span></div>
         </div>
+        <div class="live-set live-jump">
+          <div class="live-row">
+            <label for="live-jslider">Jump height <span class="pill" id="live-jmode"></span></label>
+            <output id="live-jvalue">&ndash;</output>
+          </div>
+          <input type="range" id="live-jslider" min="1" max="2" step="any" disabled>
+          <div class="live-row small muted"><span id="live-jmin">&ndash;</span><span id="live-jmax">&ndash;</span></div>
+          <button class="btn ghost live-jreturn" id="live-jreturn" disabled>Return to earned jump</button>
+        </div>
         <p class="muted small" id="live-note">Live data is unavailable.</p>
         <button class="btn primary live-return" id="live-return" disabled>Return to Earned Speed</button>
       </section>
@@ -187,19 +196,22 @@
           <div class="page-head">
             <div>
               <h3>Jump Height</h3>
-              <p class="muted">How many times higher Mario jumps. Gravity stays exactly vanilla: only the launch power changes, so the jump rises higher and takes a little longer. Applies to jump, double and triple jump, backflip, side flip, wall jump and jumps in 2D sections. It is not tied to Moons.</p>
+              <p class="muted">How many times higher Mario jumps. Gravity stays exactly vanilla: only the launch power changes, so the jump rises higher and takes a little longer. Applies to jump, double and triple jump, backflip, side flip, wall jump and jumps in 2D sections. With &ldquo;Scale with Moons&rdquo; on (default) the jump is earned like speed: 1.00&times; at 0 Moons, rising to the height below at full progress.</p>
             </div>
             <label class="switch big"><input type="checkbox" id="jump-enabled"><span></span><em>On</em></label>
           </div>
           <div class="sliders">
             <div class="slider">
-              <label for="jump-height">Jump height <output id="o-jump"></output></label>
-              <input type="range" id="jump-height" min="1" max="5" step="0.05">
+              <label for="jump-height">Jump height at full progress <output id="o-jump"></output></label>
+              <input type="range" id="jump-height" min="1" max="10" step="0.05">
               <p class="hint" id="jump-hint"></p>
             </div>
           </div>
+          <div class="sliders">
+            <label class="switch"><input type="checkbox" id="jump-scale"><span></span><em>Scale with Moons (uses the same progress as Moon Speed)</em></label>
+          </div>
           <p class="hint warn" id="jump-warn" hidden></p>
-          <p class="hint">Capped at 5.00×. Never changed: gravity, fall speed, long-jump arc, enemy and Moon-bounce heights.</p>
+          <p class="hint">Capped at 10.00×. Never changed: gravity, fall speed, long-jump arc, enemy and Moon-bounce heights.</p>
         </section>
 
         <section class="page" data-page="anim" hidden>

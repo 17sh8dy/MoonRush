@@ -466,6 +466,12 @@ fn live_status() -> live::LiveStatus {
         min: g.min.min(g.earned),
         max: g.max,
         moon_speed_enabled: g.enabled,
+        j_enabled: g.j_enabled,
+        j_earned: g.j_earned,
+        j_applied: g.j_applied,
+        j_manual: g.j_manual,
+        j_min: 1.0f32.min(g.j_earned),
+        j_max: g.j_max,
     }
 }
 
@@ -487,11 +493,16 @@ fn next_live_seq() -> u64 {
     }
 }
 
-fn write_live_request(manual: Option<f32>) -> Result<(), String> {
+/// What the game is currently holding as manual, so a request for one control never disturbs the other.
+fn current_wants(st: &live::LiveStatus) -> (Option<f32>, Option<f32>) {
+    ((st.manual && st.moon_speed_enabled).then_some(st.applied), (st.j_manual && st.j_enabled).then_some(st.j_applied))
+}
+
+fn write_live_request(speed: Option<f32>, jump: Option<f32>) -> Result<(), String> {
     let (_exe, data) = current_data()?;
     let dir = live_dir(&data);
     fs::create_dir_all(&dir).map_err(|e| format!("Couldn't create {}: {e}", dir.display()))?;
-    let text = settings::live_control_text(next_live_seq(), manual);
+    let text = settings::live_control_text(next_live_seq(), speed, jump);
     let target = dir.join("live.ini");
     let tmp = dir.join("live.ini.tmp");
     // Write a temp file and rename it over live.ini so the game never reads half a request;
@@ -515,20 +526,49 @@ fn live_set_speed(speed: f32) -> Result<f32, String> {
         return Err("Moon Speed is switched off in the settings.".into());
     }
     let capped = settings::live_speed(st.earned, Some(speed));
-    write_live_request(Some(capped))?;
+    write_live_request(Some(capped), current_wants(&st).1)?;
     Ok(capped)
 }
 
 /// Drop any manual speed: recompute the earned speed (Rust formula, current Moon count, saved curve/start/gain/max)
 /// and tell the game to apply the earned speed now. Moon count, save data and settings are not touched.
+/// A manual jump height, if any, is left as it is.
 #[tauri::command]
 fn live_return_to_earned() -> Result<f32, String> {
     let st = live_status();
     if !st.connected {
         return Err("The game isn't connected, so there is nothing to restore.".into());
     }
-    write_live_request(None)?;
+    write_live_request(None, current_wants(&st).1)?;
     Ok(settings::live_speed(get_settings().moon_speed.multiplier(st.moons), None))
+}
+
+/// Ask the running game for a manual jump height, capped at the jump height the Moon count has earned.
+#[tauri::command]
+fn live_set_jump(height: f32) -> Result<f32, String> {
+    let st = live_status();
+    if !st.connected {
+        return Err("The game isn't connected, so there is nothing to adjust.".into());
+    }
+    if !st.j_enabled {
+        return Err("Jump Height is switched off in the settings.".into());
+    }
+    let capped = settings::live_jump(st.j_earned, Some(height));
+    write_live_request(current_wants(&st).0, Some(capped))?;
+    Ok(capped)
+}
+
+/// Drop any manual jump height: the game goes back to the earned jump (recomputed here with the Rust formula).
+/// A manual speed, if any, is left as it is.
+#[tauri::command]
+fn live_return_jump() -> Result<f32, String> {
+    let st = live_status();
+    if !st.connected {
+        return Err("The game isn't connected, so there is nothing to restore.".into());
+    }
+    write_live_request(current_wants(&st).0, None)?;
+    let s = get_settings();
+    Ok(settings::earned_jump(&s, st.moons))
 }
 
 #[tauri::command]
@@ -557,6 +597,8 @@ pub fn run() {
             live_status,
             live_set_speed,
             live_return_to_earned,
+            live_set_jump,
+            live_return_jump,
             open_folder
         ])
         .run(tauri::generate_context!())

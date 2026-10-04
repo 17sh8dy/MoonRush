@@ -67,12 +67,15 @@ impl Default for Captures {
 #[serde(default)]
 pub struct Jump {
     pub enabled: bool,
+    /// The jump height reached at full Moon progress (or always, with `scale` off).
     pub height: f32,
+    /// v0.7: jump height is EARNED like speed: 1x at 0 Moons, rising to `height` along the Moon Speed curve.
+    pub scale: bool,
 }
 
 impl Default for Jump {
     fn default() -> Self {
-        Jump { enabled: false, height: 1.0 }
+        Jump { enabled: false, height: 1.0, scale: true }
     }
 }
 
@@ -156,8 +159,8 @@ pub const PER_MOON_MAX: f32 = 0.05;
 /// Hard ceiling. Raised 5 -> 10 on 2026-10-04 as an OPTION to test; clipping at high speed is UNTESTED above 3x.
 pub const MAX_CEILING: f32 = 10.0;
 pub const JUMP_HEIGHT_MIN: f32 = 1.0;
-/// Above 5x Mario clears most level geometry and skips whole sections.
-pub const JUMP_HEIGHT_MAX: f32 = 5.0;
+/// Raised 5 -> 10 on 2026-10-04 (nothing tested above 5x was ever clipped or skipped); the launcher warns above 5x.
+pub const JUMP_HEIGHT_MAX: f32 = 10.0;
 pub const MOON_ANIM_MIN: f32 = 1.0;
 pub const MOON_ANIM_MAX: f32 = 5.0;
 
@@ -225,16 +228,34 @@ pub fn live_speed(earned: f32, manual: Option<f32>) -> f32 {
     }
 }
 
-/// Text of live.ini, the request the game polls. `seq` must increase with every request.
-pub fn live_control_text(seq: u64, manual: Option<f32>) -> String {
-    match manual {
-        Some(x) if x.is_finite() => format!("seq={seq}
-speed={x:.4}
-"),
-        _ => format!("seq={seq}
-speed=earned
-"),
+/// The jump height the Moon count has earned: 1x at 0 Moons, rising to the Jump Height setting along the same curve
+/// as Moon Speed (or fixed at the setting with "Scale with Moons" off). 1x when Jump Height is off.
+/// The game computes the same thing (`moonrush::earnedJump`); both are checked against tests/jump_vectors.txt.
+pub fn earned_jump(s: &Settings, moons: i32) -> f32 {
+    if !s.jump.enabled {
+        return 1.0;
     }
+    if !s.jump.scale {
+        return s.jump.height;
+    }
+    1.0 + (s.jump.height - 1.0) * s.moon_speed.progress(moons)
+}
+
+/// A manual jump height never exceeds the earned jump and never goes below 1x. None = the earned jump.
+pub fn live_jump(earned: f32, manual: Option<f32>) -> f32 {
+    match manual {
+        Some(x) if x.is_finite() => x.clamp(JUMP_HEIGHT_MIN.min(earned), earned),
+        _ => earned,
+    }
+}
+
+/// Text of live.ini, the request the game polls. `seq` must increase with every request.
+pub fn live_control_text(seq: u64, speed: Option<f32>, jump: Option<f32>) -> String {
+    let one = |v: Option<f32>| match v {
+        Some(x) if x.is_finite() => format!("{x:.4}"),
+        _ => "earned".to_string(),
+    };
+    format!("seq={seq}\nspeed={}\njump={}\n", one(speed), one(jump))
 }
 
 impl MoonSpeed {
@@ -248,15 +269,21 @@ impl MoonSpeed {
         }
     }
 
-    pub fn multiplier(&self, moons: i32) -> f32 {
-        let Some(to_max) = self.moons_to_max() else { return self.start };
+    /// How far along the progression the Moon count is, 0..1, after the curve. 0 if it never moves.
+    /// Speed and the earned jump both use this, so they rise together.
+    pub fn progress(&self, moons: i32) -> f32 {
+        let Some(to_max) = self.moons_to_max() else { return 0.0 };
         let t = (moons.max(0) as f32 / to_max).clamp(0.0, 1.0);
-        let shaped = match self.curve {
+        match self.curve {
             Curve::Linear => t,
             Curve::FrontLoaded => 1.0 - (1.0 - t) * (1.0 - t),
             Curve::BackLoaded => t * t,
-        };
-        self.start + (self.max - self.start) * shaped
+        }
+    }
+
+    pub fn multiplier(&self, moons: i32) -> f32 {
+        let Some(_) = self.moons_to_max() else { return self.start };
+        self.start + (self.max - self.start) * self.progress(moons)
     }
 }
 
@@ -299,6 +326,7 @@ pub fn to_ini(s: &Settings) -> String {
          cappy.enabled={}\n\
          jump.enabled={}\n\
          jump.height={:.3}\n\
+         jump.scale={}\n\
          moon_anim.enabled={}\n\
          moon_anim.speed={:.3}\n\
          first_person.enabled={}\n\
@@ -312,7 +340,7 @@ pub fn to_ini(s: &Settings) -> String {
         b(s.captures.enabled),
         s.captures.off.iter().filter(|n| is_capture_name(n)).cloned().collect::<Vec<_>>().join(","),
         b(s.captures.cappy),
-        b(s.jump.enabled), s.jump.height,
+        b(s.jump.enabled), s.jump.height, b(s.jump.scale),
         b(s.moon_anim.enabled), s.moon_anim.speed,
         b(fp.enabled),
         match fp.button {
@@ -402,11 +430,11 @@ mod tests {
     #[test]
     fn jump_height_is_clamped_and_written() {
         let mut s = Settings::default();
-        assert_eq!(s.jump, Jump { enabled: false, height: 1.0 });
+        assert_eq!(s.jump, Jump { enabled: false, height: 1.0, scale: true });
         s.jump.enabled = true;
-        s.jump.height = 9.0;
+        s.jump.height = 99.0;
         let ini = to_ini(&s.clone().sanitized());
-        assert!(ini.contains("jump.enabled=1\n") && ini.contains("jump.height=5.000\n"));
+        assert!(ini.contains("jump.enabled=1\n") && ini.contains("jump.height=10.000\n"));
         s.jump.height = f32::NAN;
         assert!(close(s.clone().sanitized().jump.height, 1.0));
         s.jump.height = 0.2;
@@ -476,12 +504,41 @@ mod tests {
 
     #[test]
     fn live_control_text_format() {
-        assert_eq!(live_control_text(7, Some(1.5)), "seq=7
-speed=1.5000
-");
-        assert_eq!(live_control_text(8, None), "seq=8
-speed=earned
-");
+        assert_eq!(live_control_text(7, Some(1.5), None), "seq=7\nspeed=1.5000\njump=earned\n");
+        assert_eq!(live_control_text(8, None, Some(2.25)), "seq=8\nspeed=earned\njump=2.2500\n");
+    }
+
+    #[test]
+    fn shared_jump_vectors() {
+        let text = include_str!("../../../tests/jump_vectors.txt");
+        let (mut earned_n, mut live_n) = (0, 0);
+        for line in text.lines().filter(|l| !l.is_empty() && !l.starts_with('#')) {
+            let f: Vec<&str> = line.split_whitespace().collect();
+            if f[0] == "earned" {
+                let mut s = Settings::default();
+                s.moon_speed.start = f[1].parse().unwrap();
+                s.moon_speed.per_moon = f[2].parse().unwrap();
+                s.moon_speed.max = f[3].parse().unwrap();
+                s.moon_speed.curve = match f[4] { "front" => Curve::FrontLoaded, "back" => Curve::BackLoaded, _ => Curve::Linear };
+                let moons: i32 = f[5].parse().unwrap();
+                s.jump = Jump { enabled: true, height: f[6].parse().unwrap(), scale: f[7] == "1" };
+                let want: f32 = f[8].parse().unwrap();
+                let got = earned_jump(&s, moons);
+                assert!(close(got, want), "{line} -> {got}");
+                earned_n += 1;
+            } else {
+                let earned: f32 = f[1].parse().unwrap();
+                let req: f32 = f[3].parse().unwrap();
+                let want: f32 = f[4].parse().unwrap();
+                let got = live_jump(earned, if f[2] == "manual" { Some(req) } else { None });
+                assert!(close(got, want), "{line} -> {got}");
+                live_n += 1;
+            }
+        }
+        assert!(earned_n >= 8 && live_n >= 5);
+        let off = Settings::default();
+        assert!(close(earned_jump(&off, 100), 1.0), "jump off = 1x");
+        assert!(close(live_jump(2.5, Some(f32::NAN)), 2.5));
     }
 
     #[test]

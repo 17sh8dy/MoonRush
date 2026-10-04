@@ -269,3 +269,6 @@ input[type="range"] { width: 100%; accent-color: var(--accent-strong); cursor: p
 .live-set input[type="range"]:disabled { opacity: .4; cursor: not-allowed; }
 .live-return { width: 100%; margin-top: 12px; padding: 11px 14px; }
 .live.off .live-stats strong, .live.off .live-row output { color: var(--faint); }
+.live-jump { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.live-jump label { display: inline-flex; align-items: center; gap: 8px; }
+.live-jreturn { margin-top: 8px; }

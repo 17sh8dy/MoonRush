@@ -37,6 +37,45 @@ int main(int argc, char** argv) {
     }
     CHECK(n >= 10, "only %d vectors", n);
 
+    // Earned jump + live jump cap: the same vectors the launcher checks.
+    {
+        std::string jv = readFile((std::string(dir) + "/jump_vectors.txt").c_str());
+        std::istringstream jin(jv);
+        std::string jl;
+        int en = 0, ln2 = 0;
+        while (std::getline(jin, jl)) {
+            if (jl.empty() || jl[0] == '#') continue;
+            std::istringstream ls(jl);
+            std::string kind; ls >> kind;
+            if (kind == "earned") {
+                float start, per, max, jh, expected; std::string curve; int moons, scale;
+                ls >> start >> per >> max >> curve >> moons >> jh >> scale >> expected;
+                moonrush::Settings s;
+                s.start = start; s.perMoon = per; s.max = max;
+                s.curve = curve == "front" ? moonrush::Curve::FrontLoaded : curve == "back" ? moonrush::Curve::BackLoaded : moonrush::Curve::Linear;
+                s.jumpEnabled = true; s.jumpHeight = jh; s.jumpScale = scale != 0;
+                float got = moonrush::earnedJump(s, moons);
+                CHECK(std::fabs(got - expected) < 1e-4f, "earned jump %s -> %f", jl.c_str(), got);
+                en++;
+            } else {
+                float earned, req, expected; std::string mode;
+                ls >> earned >> mode >> req >> expected;
+                float got = moonrush::liveJump(earned, mode == "manual", req);
+                CHECK(std::fabs(got - expected) < 1e-4f, "live jump %s -> %f", jl.c_str(), got);
+                ln2++;
+            }
+        }
+        CHECK(en >= 8 && ln2 >= 5, "jump vectors: %d earned, %d live", en, ln2);
+        moonrush::Settings off;
+        CHECK(std::fabs(moonrush::earnedJump(off, 100) - 1.0f) < 1e-6f, "jump off = 1x");
+        CHECK(std::fabs(moonrush::liveJump(2.5f, true, std::nanf("")) - 2.5f) < 1e-6f, "NaN jump request -> earned");
+        const char* sc = "jump.enabled=1\njump.height=3\njump.scale=0\n";
+        auto jsx = moonrush::parseSettings(sc, std::strlen(sc));
+        CHECK(jsx.jumpEnabled && !jsx.jumpScale, "jump.scale parsed");
+        const char* dflt = "jump.enabled=1\n";
+        CHECK(moonrush::parseSettings(dflt, std::strlen(dflt)).jumpScale, "jump.scale defaults on");
+    }
+
     // Moon Animation Speed: extra demo updates per frame (fractional speeds carry over; off or NaN = none).
     {
         float carry = 0;
@@ -76,9 +115,10 @@ int main(int argc, char** argv) {
         CHECK(std::fabs(moonrush::liveSpeed(2.2f, true, INFINITY) - 2.2f) < 1e-6f, "inf request -> earned");
 
         // The file the launcher writes (see live_control_text in settings.rs) parses back.
-        const char* req = "seq=1790000000123\nspeed=1.5000\n";
+        const char* req = "seq=1790000000123\nspeed=1.5000\njump=2.2500\n";
         auto c = moonrush::parseLiveControl(req, std::strlen(req));
-        CHECK(c.found && c.seq == 1790000000123ULL && !c.earned && std::fabs(c.speed - 1.5f) < 1e-6f, "manual request");
+        CHECK(c.found && c.seq == 1790000000123ULL && c.speedFound && !c.earned && std::fabs(c.speed - 1.5f) < 1e-6f, "manual request");
+        CHECK(c.jumpFound && !c.jumpEarned && std::fabs(c.jump - 2.25f) < 1e-6f, "manual jump request");
         const char* ret = "seq=1790000000456\r\nspeed=earned\r\n";
         c = moonrush::parseLiveControl(ret, std::strlen(ret));
         CHECK(c.found && c.seq == 1790000000456ULL && c.earned, "return-to-earned request (CRLF ok)");
@@ -129,7 +169,7 @@ int main(int argc, char** argv) {
     CHECK(std::fabs(moonrush::jumpLaunchFactor(j2) - std::sqrt(2.5f)) < 1e-4f, "2.5x (%f)", moonrush::jumpLaunchFactor(j2));
     const char* jmp3 = "jump.enabled=1\njump.height=99\n";
     auto j3 = moonrush::parseSettings(jmp3, std::strlen(jmp3));
-    CHECK(std::fabs(j3.jumpHeight - 5.0f) < 1e-6f, "height clamped to 5x (%f)", j3.jumpHeight);
+    CHECK(std::fabs(j3.jumpHeight - 10.0f) < 1e-6f, "height clamped to 10x (%f)", j3.jumpHeight);
     const char* jmp4 = "jump.enabled=0\njump.height=3\n";
     auto j4 = moonrush::parseSettings(jmp4, std::strlen(jmp4));
     CHECK(std::fabs(moonrush::jumpLaunchFactor(j4) - 1.0f) < 1e-6f, "disabled = vanilla");

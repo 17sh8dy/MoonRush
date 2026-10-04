@@ -44,6 +44,8 @@ namespace moonrush {
         // changed (by sqrt(height)); gravity is never touched, so the arc keeps vanilla gravity.
         bool jumpEnabled = false;
         float jumpHeight = 1.0f;
+        // v0.7: the jump height is EARNED like speed (1x at 0 Moons, rising to jumpHeight along the Moon Speed curve).
+        bool jumpScale = true;
 
         // Moon Animation Speed (v0.6): the ordinary Moon-get demo's own updates are repeated, so it plays
         // `moonAnimSpeed` times faster. Independent of Moon Speed and Jump Height.
@@ -71,7 +73,7 @@ namespace moonrush {
     inline constexpr float kPerMoonMax = 0.05f;
     inline constexpr float kMaxCeiling = 10.0f;
     inline constexpr float kJumpHeightMin = 1.0f;
-    inline constexpr float kJumpHeightMax = 5.0f;
+    inline constexpr float kJumpHeightMax = 10.0f;
     inline constexpr float kMoonAnimMin = 1.0f;
     inline constexpr float kMoonAnimMax = 5.0f;
 
@@ -177,6 +179,7 @@ namespace moonrush {
             if (eq(key, kn, "captures.off")) { parseNameList(s, val, vn); continue; }
             if (eq(key, kn, "cappy.enabled")) { s.cappy = flag; continue; }
             if (eq(key, kn, "jump.enabled")) { s.jumpEnabled = flag; continue; }
+            if (eq(key, kn, "jump.scale")) { s.jumpScale = flag; continue; }
             if (eq(key, kn, "jump.height")) { float jf; if (parseFloat(val, vn, &jf)) s.jumpHeight = jf; continue; }
             if (eq(key, kn, "moon_anim.enabled")) { s.moonAnimEnabled = flag; continue; }
             if (eq(key, kn, "moon_anim.speed")) { float mf; if (parseFloat(val, vn, &mf)) s.moonAnimSpeed = mf; continue; }
@@ -220,12 +223,15 @@ namespace moonrush {
     }
 
     // Launch-power factor that gives `height` times the jump height at unchanged gravity (apex = v^2 / 2g).
-    inline float jumpLaunchFactor(const Settings& s) {
-        if (!s.jumpEnabled) return 1.0f;
-        float x = detail::clampf(s.jumpHeight, kJumpHeightMin, kJumpHeightMax);
+    inline float jumpLaunchFactorFor(float height) {
+        float x = detail::clampf(detail::isFinite(height) ? height : 1.0f, kJumpHeightMin, kJumpHeightMax);
         float r = x;  // Newton's sqrt without <cmath> (keeps this header dependency-free)
         for (int i = 0; i < 12; i++) r = 0.5f * (r + x / r);
         return r;
+    }
+    inline float jumpLaunchFactor(const Settings& s) {
+        if (!s.jumpEnabled) return 1.0f;
+        return jumpLaunchFactorFor(s.jumpHeight);
     }
 
     // Moon Animation Speed: how many EXTRA demo updates to run this frame so the demo plays `speed` times faster.
@@ -240,15 +246,38 @@ namespace moonrush {
     }
 
     // Speed multiplier for a Moon count. Same formula as MoonSpeed::multiplier in the launcher.
-    inline float multiplier(const Settings& s, int moons) {
+    // How far along the progression the Moon count is (0..1, after the curve); 0 if it never moves.
+    // Speed and the earned jump share it. Same as MoonSpeed::progress in the launcher.
+    inline float progress(const Settings& s, int moons) {
         float span = s.max - s.start;
-        if (span <= 0.0f || s.perMoon <= 0.0f) return s.start;
+        if (span <= 0.0f || s.perMoon <= 0.0f) return 0.0f;
         float toMax = span / s.perMoon;
         float t = detail::clampf(static_cast<float>(moons < 0 ? 0 : moons) / toMax, 0.0f, 1.0f);
         float shaped = t;
         if (s.curve == Curve::FrontLoaded) shaped = 1.0f - (1.0f - t) * (1.0f - t);
         else if (s.curve == Curve::BackLoaded) shaped = t * t;
-        return s.start + span * shaped;
+        return shaped;
+    }
+
+    inline float multiplier(const Settings& s, int moons) {
+        float span = s.max - s.start;
+        if (span <= 0.0f || s.perMoon <= 0.0f) return s.start;
+        return s.start + span * progress(s, moons);
+    }
+
+    // The jump height the Moon count has earned (see earned_jump in the launcher; tests/jump_vectors.txt).
+    inline float earnedJump(const Settings& s, int moons) {
+        if (!s.jumpEnabled) return 1.0f;
+        float h = detail::clampf(s.jumpHeight, kJumpHeightMin, kJumpHeightMax);
+        if (!s.jumpScale) return h;
+        return 1.0f + (h - 1.0f) * progress(s, moons);
+    }
+
+    // A manual jump height never exceeds the earned jump and never goes below 1x.
+    inline float liveJump(float earned, bool manual, float requested) {
+        if (!manual || !detail::isFinite(requested)) return earned;
+        float lo = kJumpHeightMin < earned ? kJumpHeightMin : earned;
+        return detail::clampf(requested, lo, earned);
     }
 
     // ---- Live speed control (launcher "Moon & Speed" panel) ---------------------------------------------
@@ -267,8 +296,12 @@ namespace moonrush {
     struct LiveControl {
         bool found = false;
         unsigned long long seq = 0;  // launcher-written, strictly increasing; a new value = a new request
+        bool speedFound = false;
         bool earned = true;          // "speed=earned": return to the earned speed
         float speed = 0.0f;          // otherwise the requested manual speed
+        bool jumpFound = false;
+        bool jumpEarned = true;      // "jump=earned": return to the earned jump height
+        float jump = 0.0f;           // otherwise the requested manual jump height
     };
 
     // Parses live.ini ("seq=<n>" and "speed=earned|<x>"). Unknown or malformed lines are ignored.
@@ -300,8 +333,12 @@ namespace moonrush {
                 if (digits) { c.seq = v; c.found = true; }
             } else if (eq(key, kn, "speed")) {
                 float f;
-                if (eq(val, vn, "earned")) c.earned = true;
-                else if (parseFloat(val, vn, &f)) { c.earned = false; c.speed = f; }
+                if (eq(val, vn, "earned")) { c.earned = true; c.speedFound = true; }
+                else if (parseFloat(val, vn, &f)) { c.earned = false; c.speed = f; c.speedFound = true; }
+            } else if (eq(key, kn, "jump")) {
+                float f;
+                if (eq(val, vn, "earned")) { c.jumpEarned = true; c.jumpFound = true; }
+                else if (parseFloat(val, vn, &f)) { c.jumpEarned = false; c.jump = f; c.jumpFound = true; }
             }
         }
         return c;
